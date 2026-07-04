@@ -39,12 +39,12 @@ exports.getAllDevelopmentWork = (req, res) => {
   }
 
   if (startDate) {
-    sql += " AND DATE(created_at) >= ?";
+    sql += " AND DATE(news_date) >= ?";
     params.push(startDate);
   }
 
   if (endDate) {
-    sql += " AND DATE(created_at) <= ?";
+    sql += " AND DATE(news_date) <= ?";
     params.push(endDate);
   }
 
@@ -65,12 +65,12 @@ exports.getAllDevelopmentWork = (req, res) => {
     }
 
     if (startDate) {
-      countSql += " AND DATE(created_at) >= ?";
+      countSql += " AND DATE(news_date) >= ?";
       countParams.push(startDate);
     }
 
     if (endDate) {
-      countSql += " AND DATE(created_at) <= ?";
+      countSql += " AND DATE(news_date) <= ?";
       countParams.push(endDate);
     }
 
