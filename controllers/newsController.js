@@ -214,35 +214,89 @@ exports.deleteNews = (req, res) => {
   });
 };
 
-// GET CATEGORIES (max 4 distinct from news table)
+// GET CATEGORIES (distinct from news table, with pagination)
 exports.getCategories = (req, res) => {
-  db.query(
-    "SELECT DISTINCT category FROM news WHERE category IS NOT NULL AND TRIM(category) != '' ORDER BY category ASC",
-    async (err, result) => {
-      if (err) return res.status(500).json({ error: err.message });
+  let { page, limit } = req.query;
 
-      const targetLang = getTargetLanguage(req);
-      const originalCategories = result.map((r) => r.category);
+  if (page && limit) {
+    db.query(
+      "SELECT COUNT(DISTINCT category) as total FROM news WHERE category IS NOT NULL AND TRIM(category) != ''",
+      (countErr, countResult) => {
+        if (countErr) return res.status(500).json({ error: countErr.message });
+        const total = countResult[0].total;
+        const offset = (parseInt(page) - 1) * parseInt(limit);
 
-      if (targetLang) {
-        try {
-          const translated = await Promise.all(
-            originalCategories.map((c) => translateText(c, targetLang))
-          );
-          const categories = originalCategories.map((c, i) => ({
-            key: c,
-            label: translated[i]
-          }));
-          return res.json({ categories });
-        } catch (transErr) {
-          console.error("Error translating categories:", transErr.message);
-        }
+        db.query(
+          "SELECT DISTINCT category FROM news WHERE category IS NOT NULL AND TRIM(category) != '' ORDER BY category ASC LIMIT ? OFFSET ?",
+          [parseInt(limit), offset],
+          async (err, result) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            const targetLang = getTargetLanguage(req);
+            const originalCategories = result.map((r) => r.category);
+
+            if (targetLang) {
+              try {
+                const translated = await Promise.all(
+                  originalCategories.map((c) => translateText(c, targetLang))
+                );
+                const categories = originalCategories.map((c, i) => ({
+                  key: c,
+                  label: translated[i]
+                }));
+                return res.json({ 
+                  categories,
+                  total,
+                  page: parseInt(page),
+                  limit: parseInt(limit),
+                  totalPages: Math.ceil(total / parseInt(limit))
+                });
+              } catch (transErr) {
+                console.error("Error translating categories:", transErr.message);
+              }
+            }
+
+            const categories = originalCategories.map(c => ({ key: c, label: c }));
+            res.json({ 
+              categories,
+              total,
+              page: parseInt(page),
+              limit: parseInt(limit),
+              totalPages: Math.ceil(total / parseInt(limit))
+            });
+          }
+        );
       }
+    );
+  } else {
+    db.query(
+      "SELECT DISTINCT category FROM news WHERE category IS NOT NULL AND TRIM(category) != '' ORDER BY category ASC",
+      async (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
 
-      const categories = originalCategories.map(c => ({ key: c, label: c }));
-      res.json({ categories });
-    }
-  );
+        const targetLang = getTargetLanguage(req);
+        const originalCategories = result.map((r) => r.category);
+
+        if (targetLang) {
+          try {
+            const translated = await Promise.all(
+              originalCategories.map((c) => translateText(c, targetLang))
+            );
+            const categories = originalCategories.map((c, i) => ({
+              key: c,
+              label: translated[i]
+            }));
+            return res.json({ categories });
+          } catch (transErr) {
+            console.error("Error translating categories:", transErr.message);
+          }
+        }
+
+        const categories = originalCategories.map(c => ({ key: c, label: c }));
+        res.json({ categories });
+      }
+    );
+  }
 };
 
 // GET ALL NEWS BY CATEGORY (filtered, latest first)
