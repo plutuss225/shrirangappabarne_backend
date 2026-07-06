@@ -227,7 +227,7 @@ exports.getCategories = (req, res) => {
         const offset = (parseInt(page) - 1) * parseInt(limit);
 
         db.query(
-          "SELECT DISTINCT category FROM news WHERE category IS NOT NULL AND TRIM(category) != '' ORDER BY category ASC LIMIT ? OFFSET ?",
+          "SELECT category FROM news WHERE category IS NOT NULL AND TRIM(category) != '' GROUP BY category ORDER BY MAX(id) DESC LIMIT ? OFFSET ?",
           [parseInt(limit), offset],
           async (err, result) => {
             if (err) return res.status(500).json({ error: err.message });
@@ -270,7 +270,7 @@ exports.getCategories = (req, res) => {
     );
   } else {
     db.query(
-      "SELECT DISTINCT category FROM news WHERE category IS NOT NULL AND TRIM(category) != '' ORDER BY category ASC",
+      "SELECT category FROM news WHERE category IS NOT NULL AND TRIM(category) != '' GROUP BY category ORDER BY MAX(id) DESC",
       async (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
 
