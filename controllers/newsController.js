@@ -22,8 +22,16 @@ async function translateNewsItem(item, targetLang) {
 }
 
 // GET ALL NEWS
-exports.getAllNews = (req, res) => {
-  const { page, limit, search, category, startDate, endDate } = req.query;
+exports.getAllNews = async (req, res) => {
+  let { page, limit, search, category, startDate, endDate } = req.query;
+
+  if (search) {
+    try {
+      search = await translateText(search, "mr");
+    } catch (e) {
+      console.error("Error translating search term:", e.message);
+    }
+  }
 
   let sql = "SELECT * FROM news WHERE 1=1";
   const params = [];
@@ -34,8 +42,8 @@ exports.getAllNews = (req, res) => {
   }
 
   if (search) {
-    sql += " AND (title LIKE ? OR description LIKE ?)";
-    params.push(`%${search}%`, `%${search}%`);
+    sql += " AND (title LIKE ? OR description LIKE ? OR category LIKE ?)";
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
 
   if (startDate) {
@@ -60,8 +68,8 @@ exports.getAllNews = (req, res) => {
     }
 
     if (search) {
-      countSql += " AND (title LIKE ? OR description LIKE ?)";
-      countParams.push(`%${search}%`, `%${search}%`);
+      countSql += " AND (title LIKE ? OR description LIKE ? OR category LIKE ?)";
+      countParams.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     if (startDate) {
@@ -240,8 +248,16 @@ exports.getCategories = (req, res) => {
 // GET ALL NEWS BY CATEGORY (filtered, latest first)
 // Usage: GET /news/by-category?category=Sports&search=test&page=1&limit=10
 // If no category provided, returns all news ordered latest first
-exports.getNewsByCategory = (req, res) => {
-  const { category, search, page, limit } = req.query;
+exports.getNewsByCategory = async (req, res) => {
+  let { category, search, page, limit } = req.query;
+
+  if (search) {
+    try {
+      search = await translateText(search, "mr");
+    } catch (e) {
+      console.error("Error translating search term:", e.message);
+    }
+  }
 
   let sql = "SELECT * FROM news WHERE 1=1";
   const params = [];
@@ -252,8 +268,8 @@ exports.getNewsByCategory = (req, res) => {
   }
 
   if (search) {
-    sql += " AND (title LIKE ? OR description LIKE ?)";
-    params.push(`%${search}%`, `%${search}%`);
+    sql += " AND (title LIKE ? OR description LIKE ? OR category LIKE ?)";
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
 
   sql += " ORDER BY id DESC";
@@ -266,8 +282,8 @@ exports.getNewsByCategory = (req, res) => {
       countParams.push(category);
     }
     if (search) {
-      countSql += " AND (title LIKE ? OR description LIKE ?)";
-      countParams.push(`%${search}%`, `%${search}%`);
+      countSql += " AND (title LIKE ? OR description LIKE ? OR category LIKE ?)";
+      countParams.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     db.query(countSql, countParams, (countErr, countResult) => {
