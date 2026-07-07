@@ -56,7 +56,7 @@ exports.getAllNews = async (req, res) => {
     params.push(endDate);
   }
 
-  sql += " ORDER BY id DESC";
+  sql += " ORDER BY COALESCE(news_date, created_at) DESC, id DESC";
 
   if (page && limit) {
     let countSql = "SELECT COUNT(*) as total FROM news WHERE 1=1";
@@ -214,9 +214,16 @@ exports.deleteNews = (req, res) => {
   });
 };
 
-// GET CATEGORIES (distinct from news table, with pagination)
+// GET CATEGORIES (distinct from news table, simple format)
 exports.getCategories = (req, res) => {
   let { page, limit } = req.query;
+
+  const baseSql = `
+    SELECT category FROM news 
+    WHERE category IS NOT NULL AND TRIM(category) != '' 
+    GROUP BY category 
+    ORDER BY MAX(COALESCE(news_date, created_at)) DESC, MAX(id) DESC
+  `;
 
   if (page && limit) {
     db.query(
@@ -226,76 +233,152 @@ exports.getCategories = (req, res) => {
         const total = countResult[0].total;
         const offset = (parseInt(page) - 1) * parseInt(limit);
 
-        db.query(
-          "SELECT category FROM news WHERE category IS NOT NULL AND TRIM(category) != '' GROUP BY category ORDER BY MAX(id) DESC LIMIT ? OFFSET ?",
-          [parseInt(limit), offset],
-          async (err, result) => {
-            if (err) return res.status(500).json({ error: err.message });
-
-            const targetLang = getTargetLanguage(req);
-            const originalCategories = result.map((r) => r.category);
-
-            if (targetLang) {
-              try {
-                const translated = await Promise.all(
-                  originalCategories.map((c) => translateText(c, targetLang))
-                );
-                const categories = originalCategories.map((c, i) => ({
-                  key: c,
-                  label: translated[i]
-                }));
-                return res.json({ 
-                  categories,
-                  total,
-                  page: parseInt(page),
-                  limit: parseInt(limit),
-                  totalPages: Math.ceil(total / parseInt(limit))
-                });
-              } catch (transErr) {
-                console.error("Error translating categories:", transErr.message);
-              }
+        db.query(baseSql + " LIMIT ? OFFSET ?", [parseInt(limit), offset], async (err, result) => {
+          if (err) return res.status(500).json({ error: err.message });
+          const targetLang = getTargetLanguage(req);
+          const originalCategories = result.map((r) => r.category);
+          if (targetLang) {
+            try {
+              const translated = await Promise.all(
+                originalCategories.map((c) => translateText(c, targetLang))
+              );
+              const categories = originalCategories.map((c, i) => ({
+                key: c,
+                label: translated[i]
+              }));
+              return res.json({ categories, total, page: parseInt(page), limit: parseInt(limit), totalPages: Math.ceil(total / parseInt(limit)) });
+            } catch (transErr) {
+              console.error("Error translating categories:", transErr.message);
             }
-
-            const categories = originalCategories.map(c => ({ key: c, label: c }));
-            res.json({ 
-              categories,
-              total,
-              page: parseInt(page),
-              limit: parseInt(limit),
-              totalPages: Math.ceil(total / parseInt(limit))
-            });
           }
-        );
+          const categories = originalCategories.map(c => ({ key: c, label: c }));
+          res.json({ categories, total, page: parseInt(page), limit: parseInt(limit), totalPages: Math.ceil(total / parseInt(limit)) });
+        });
       }
     );
   } else {
-    db.query(
-      "SELECT category FROM news WHERE category IS NOT NULL AND TRIM(category) != '' GROUP BY category ORDER BY MAX(id) DESC",
-      async (err, result) => {
-        if (err) return res.status(500).json({ error: err.message });
-
-        const targetLang = getTargetLanguage(req);
-        const originalCategories = result.map((r) => r.category);
-
-        if (targetLang) {
-          try {
-            const translated = await Promise.all(
-              originalCategories.map((c) => translateText(c, targetLang))
-            );
-            const categories = originalCategories.map((c, i) => ({
-              key: c,
-              label: translated[i]
-            }));
-            return res.json({ categories });
-          } catch (transErr) {
-            console.error("Error translating categories:", transErr.message);
-          }
+    db.query(baseSql, async (err, result) => {
+      if (err) return res.status(500).json({ error: err.message });
+      const targetLang = getTargetLanguage(req);
+      const originalCategories = result.map((r) => r.category);
+      if (targetLang) {
+        try {
+          const translated = await Promise.all(
+            originalCategories.map((c) => translateText(c, targetLang))
+          );
+          const categories = originalCategories.map((c, i) => ({
+            key: c,
+            label: translated[i]
+          }));
+          return res.json({ categories });
+        } catch (transErr) {
+          console.error("Error translating categories:", transErr.message);
         }
+      }
+      const categories = originalCategories.map(c => ({ key: c, label: c }));
+      res.json({ categories });
+    });
+  }
+};
 
-        const categories = originalCategories.map(c => ({ key: c, label: c }));
-        res.json({ categories });
+// GET CATEGORIES WITH LATEST NEWS
+exports.getCategoriesWithLatestNews = (req, res) => {
+  let { page, limit } = req.query;
+
+  const baseSql = `
+    SELECT n1.* 
+    FROM news n1
+    LEFT JOIN news n2 
+      ON n1.category = n2.category 
+      AND (COALESCE(n1.news_date, n1.created_at) < COALESCE(n2.news_date, n2.created_at) 
+           OR (COALESCE(n1.news_date, n1.created_at) = COALESCE(n2.news_date, n2.created_at) AND n1.id < n2.id))
+    WHERE n2.id IS NULL 
+      AND n1.category IS NOT NULL 
+      AND TRIM(n1.category) != ''
+    ORDER BY COALESCE(n1.news_date, n1.created_at) DESC, n1.id DESC
+  `;
+
+  if (page && limit) {
+    db.query(
+      "SELECT COUNT(DISTINCT category) as total FROM news WHERE category IS NOT NULL AND TRIM(category) != ''",
+      (countErr, countResult) => {
+        if (countErr) return res.status(500).json({ error: countErr.message });
+        const total = countResult[0].total;
+        const offset = (parseInt(page) - 1) * parseInt(limit);
+
+        const sql = baseSql + " LIMIT ? OFFSET ?";
+
+        db.query(sql, [parseInt(limit), offset], async (err, result) => {
+          if (err) return res.status(500).json({ error: err.message });
+
+          const targetLang = getTargetLanguage(req);
+
+          if (targetLang) {
+            try {
+              const translatedItems = await Promise.all(
+                result.map((item) => translateNewsItem(item, targetLang))
+              );
+              const categories = result.map((row, i) => ({
+                key: row.category,
+                label: translatedItems[i].category,
+                latestNews: translatedItems[i]
+              }));
+              return res.json({
+                categories,
+                total,
+                page: parseInt(page),
+                limit: parseInt(limit),
+                totalPages: Math.ceil(total / parseInt(limit))
+              });
+            } catch (transErr) {
+              console.error("Error translating categories:", transErr.message);
+            }
+          }
+
+          const categories = result.map(row => ({ 
+            key: row.category, 
+            label: row.category,
+            latestNews: row
+          }));
+          res.json({
+            categories,
+            total,
+            page: parseInt(page),
+            limit: parseInt(limit),
+            totalPages: Math.ceil(total / parseInt(limit))
+          });
+        });
       }
     );
+  } else {
+    db.query(baseSql, async (err, result) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      const targetLang = getTargetLanguage(req);
+
+      if (targetLang) {
+        try {
+          const translatedItems = await Promise.all(
+            result.map((item) => translateNewsItem(item, targetLang))
+          );
+          const categories = result.map((row, i) => ({
+            key: row.category,
+            label: translatedItems[i].category,
+            latestNews: translatedItems[i]
+          }));
+          return res.json({ categories });
+        } catch (transErr) {
+          console.error("Error translating categories:", transErr.message);
+        }
+      }
+
+      const categories = result.map(row => ({ 
+        key: row.category, 
+        label: row.category,
+        latestNews: row
+      }));
+      res.json({ categories });
+    });
   }
 };
 
@@ -326,7 +409,7 @@ exports.getNewsByCategory = async (req, res) => {
     params.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
 
-  sql += " ORDER BY id DESC";
+  sql += " ORDER BY COALESCE(news_date, created_at) DESC, id DESC";
 
   if (page && limit) {
     let countSql = "SELECT COUNT(*) as total FROM news WHERE 1=1";
@@ -409,7 +492,7 @@ exports.getTopNewsByCategory = (req, res) => {
     params.push(category);
   }
 
-  sql += " ORDER BY id DESC LIMIT 3";
+  sql += " ORDER BY COALESCE(news_date, created_at) DESC, id DESC LIMIT 3";
 
   db.query(sql, params, async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });

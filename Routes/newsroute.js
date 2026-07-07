@@ -7,6 +7,7 @@ const {
   updateNews,
   deleteNews,
   getCategories,
+  getCategoriesWithLatestNews,
   getNewsByCategory,
   getTopNewsByCategory
 } = require("../controllers/newsController");
@@ -17,6 +18,9 @@ router.get("/", getAllNews);
 
 // GET DISTINCT CATEGORIES (max 4)
 router.get("/categories", getCategories);
+
+// GET CATEGORIES WITH LATEST NEWS
+router.get("/categories-with-latest", getCategoriesWithLatestNews);
 
 // GET ALL NEWS BY CATEGORY (latest first, optional ?category=Sports)
 router.get("/by-category", getNewsByCategory);
