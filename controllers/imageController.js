@@ -17,23 +17,71 @@ async function translateImageItem(item, targetLang) {
 
 // GET ALL IMAGES
 exports.getAllImages = (req, res) => {
-  db.query("SELECT * FROM images ORDER BY created_at DESC LIMIT 20", async (err, result) => {
-    if (err) return res.status(500).json(err);
-    
-    const targetLang = getTargetLanguage(req);
-    if (targetLang) {
-      try {
-        const translatedResult = await Promise.all(
-          result.map(item => translateImageItem(item, targetLang))
-        );
-        return res.json(translatedResult);
-      } catch (transErr) {
-        console.error("Error in parallel translation:", transErr.message);
+  const page = parseInt(req.query.page);
+  const limit = parseInt(req.query.limit) || 20;
+  const search = req.query.search || "";
+  const isPaginated = !isNaN(page);
+
+  let queryStr = "SELECT * FROM images";
+  let countQueryStr = "SELECT COUNT(*) as total FROM images";
+  let queryParams = [];
+  
+  if (search) {
+    queryStr += " WHERE title LIKE ?";
+    countQueryStr += " WHERE title LIKE ?";
+    queryParams.push(`%${search}%`);
+  }
+
+  queryStr += " ORDER BY created_at DESC";
+
+  if (isPaginated) {
+    const offset = (page - 1) * limit;
+    queryStr += " LIMIT ? OFFSET ?";
+    queryParams.push(limit, offset);
+
+    db.query(countQueryStr, queryParams.slice(0, search ? 1 : 0), (countErr, countResult) => {
+      if (countErr) return res.status(500).json(countErr);
+      const total = countResult[0].total;
+      const totalPages = Math.ceil(total / limit);
+
+      db.query(queryStr, queryParams, async (err, result) => {
+        if (err) return res.status(500).json(err);
+        
+        const targetLang = getTargetLanguage(req);
+        if (targetLang) {
+          try {
+            const translatedResult = await Promise.all(
+              result.map(item => translateImageItem(item, targetLang))
+            );
+            return res.json({ data: translatedResult, totalPages, currentPage: page });
+          } catch (transErr) {
+            console.error("Error in parallel translation:", transErr.message);
+          }
+        }
+        
+        res.json({ data: result, totalPages, currentPage: page });
+      });
+    });
+  } else {
+    // Original behavior for backward compatibility
+    db.query("SELECT * FROM images ORDER BY created_at DESC LIMIT 50", async (err, result) => {
+      if (err) return res.status(500).json(err);
+      
+      const targetLang = getTargetLanguage(req);
+      if (targetLang) {
+        try {
+          const translatedResult = await Promise.all(
+            result.map(item => translateImageItem(item, targetLang))
+          );
+          return res.json(translatedResult);
+        } catch (transErr) {
+          console.error("Error in parallel translation:", transErr.message);
+        }
       }
-    }
-    
-    res.json(result);
-  });
+      
+      res.json(result);
+    });
+  }
 };
 
 // GET BY ID
@@ -58,15 +106,15 @@ exports.getImageById = (req, res) => {
 
 // INSERT IMAGE
 exports.createImage = (req, res) => {
-  const { image, isHeroSelectionImage, title } = req.body;
+  const { image, isHeroSelectionImage, title, category } = req.body;
 
   if (!image) {
     return res.status(400).json({ error: "Image path/URL is required" });
   }
 
   db.query(
-    "INSERT INTO images (image, isHeroSelectionImage, title) VALUES (?,?,?)",
-    [image, isHeroSelectionImage ? 1 : 0, title || null],
+    "INSERT INTO images (image, isHeroSelectionImage, title, category) VALUES (?,?,?,?)",
+    [image, isHeroSelectionImage ? 1 : 0, title || null, category || null],
     (err, result) => {
       if (err) return res.status(500).json(err);
       res.json({ message: "Image added successfully", result });
@@ -76,15 +124,15 @@ exports.createImage = (req, res) => {
 
 // UPDATE IMAGE
 exports.updateImage = (req, res) => {
-  const { image, isHeroSelectionImage, title } = req.body;
+  const { image, isHeroSelectionImage, title, category } = req.body;
 
   if (!image) {
     return res.status(400).json({ error: "Image path/URL is required" });
   }
 
   db.query(
-    "UPDATE images SET image=?, isHeroSelectionImage=?, title=? WHERE id=?",
-    [image, isHeroSelectionImage ? 1 : 0, title || null, req.params.id],
+    "UPDATE images SET image=?, isHeroSelectionImage=?, title=?, category=? WHERE id=?",
+    [image, isHeroSelectionImage ? 1 : 0, title || null, category || null, req.params.id],
     (err, result) => {
       if (err) return res.status(500).json(err);
       if (result.affectedRows === 0) {
@@ -139,6 +187,92 @@ exports.getHeroImages = (req, res) => {
       }
 
       res.json(result);
+    }
+  );
+};
+
+// GET IMAGES BY CATEGORY
+exports.getImagesByCategory = (req, res) => {
+  const { category } = req.params;
+  const page = parseInt(req.query.page);
+  const limit = parseInt(req.query.limit) || 20;
+  const search = req.query.search || "";
+  const isPaginated = !isNaN(page);
+
+  let queryStr = "SELECT * FROM images WHERE category = ?";
+  let countQueryStr = "SELECT COUNT(*) as total FROM images WHERE category = ?";
+  let queryParams = [category];
+
+  if (search) {
+    queryStr += " AND title LIKE ?";
+    countQueryStr += " AND title LIKE ?";
+    queryParams.push(`%${search}%`);
+  }
+
+  queryStr += " ORDER BY created_at DESC";
+
+  if (isPaginated) {
+    const offset = (page - 1) * limit;
+    queryStr += " LIMIT ? OFFSET ?";
+    queryParams.push(limit, offset);
+
+    db.query(countQueryStr, queryParams.slice(0, search ? 2 : 1), (countErr, countResult) => {
+      if (countErr) return res.status(500).json(countErr);
+      const total = countResult[0].total;
+      const totalPages = Math.ceil(total / limit);
+
+      db.query(queryStr, queryParams, async (err, result) => {
+        if (err) return res.status(500).json(err);
+        
+        const targetLang = getTargetLanguage(req);
+        if (targetLang) {
+          try {
+            const translatedResult = await Promise.all(
+              result.map(item => translateImageItem(item, targetLang))
+            );
+            return res.json({ data: translatedResult, totalPages, currentPage: page });
+          } catch (transErr) {
+            console.error("Error translating category images:", transErr.message);
+          }
+        }
+        
+        res.json({ data: result, totalPages, currentPage: page });
+      });
+    });
+  } else {
+    // Original behavior
+    db.query(
+      "SELECT * FROM images WHERE category = ? ORDER BY created_at DESC LIMIT 50",
+      [category],
+      async (err, result) => {
+        if (err) return res.status(500).json(err);
+
+        const targetLang = getTargetLanguage(req);
+        if (targetLang) {
+          try {
+            const translatedResult = await Promise.all(
+              result.map((item) => translateImageItem(item, targetLang))
+            );
+            return res.json(translatedResult);
+          } catch (transErr) {
+            console.error("Error translating category images:", transErr.message);
+          }
+        }
+
+        res.json(result);
+      }
+    );
+  }
+};
+
+// GET ALL CATEGORIES
+exports.getCategories = (req, res) => {
+  db.query(
+    "SELECT DISTINCT category FROM images WHERE category IS NOT NULL AND TRIM(category) != ''",
+    (err, result) => {
+      if (err) return res.status(500).json(err);
+      const categories = result.map(row => row.category);
+      res.json(categories);
     }
   );
 };

@@ -6,8 +6,10 @@ const {
   getHeroImages,
   createImage,
   updateImage,
-  deleteImage
-} = require("../controllers/imageController");
+  deleteImage,
+  getImagesByCategory,
+  getCategories
+} = require("../controllers/imagecontroller");
 const authMiddleware = require("../middleware/authMiddleware");
 
 // GET ALL IMAGES (latest first)
@@ -18,6 +20,13 @@ router.get("/hero", getHeroImages);
 
 // GET BY ID
 router.get("/:id", getImageById);
+
+// GET IMAGES BY CATEGORY
+router.get("/category/:category", getImagesByCategory);
+
+// GET ALL CATEGORIES
+router.get("/categories", getCategories);
+
 
 // INSERT IMAGE
 router.post("/", authMiddleware, createImage);

@@ -54,10 +54,12 @@ app.post("/api/upload", async (req, res) => {
   if (!base64) return res.status(400).json({ error: "No image base64 data provided" });
 
   try {
-    const matches = base64.match(/^data:([A-Za-z0-9-+\/]+);base64,(.+)$/);
-    if (!matches || matches.length !== 3) {
+    const headerEnd = base64.indexOf(';base64,');
+    if (!base64.startsWith('data:') || headerEnd === -1) {
       return res.status(400).json({ error: "Invalid base64 string format" });
     }
+
+
 
     const secureUrl = await uploadImage(base64, "uploads");
     res.json({ url: secureUrl });
@@ -78,6 +80,7 @@ const developmentWorkRoute = require("./Routes/developmentworkroute");
 const blogRoute = require("./Routes/blogroute");
 const imageRoute = require("./Routes/imageroute");
 const contactRoute = require("./Routes/contactroute");
+const eventRoute = require("./Routes/eventroute");
 
 // Register Routes
 app.use("/api/admin", adminRoute);
@@ -86,6 +89,9 @@ app.use("/api/development_work", developmentWorkRoute);
 app.use("/api/blogs", blogRoute);
 app.use("/api/images", imageRoute);
 app.use("/api/contact", contactRoute);
+app.use("/api/events", eventRoute);
+app.use("/api/event", eventRoute);
+
 
 // Also support routes without /api prefix just in case
 app.use("/admin", adminRoute);
@@ -94,6 +100,9 @@ app.use("/development_work", developmentWorkRoute);
 app.use("/blogs", blogRoute);
 app.use("/images", imageRoute);
 app.use("/contact", contactRoute);
+app.use("/events", eventRoute);
+app.use("/event", eventRoute);
+
 
 // Base Route
 app.get("/", (req, res) => {
