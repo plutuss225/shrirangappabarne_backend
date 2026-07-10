@@ -9,7 +9,7 @@ const {
   deleteImage,
   getImagesByCategory,
   getCategories
-} = require("../controllers/imagecontroller");
+} = require("../controllers/imageController");
 const authMiddleware = require("../middleware/authMiddleware");
 
 // GET ALL IMAGES (latest first)
