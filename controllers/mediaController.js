@@ -9,7 +9,7 @@ exports.getMedia = (req, res) => {
     return res.status(400).send('Invalid request');
   }
 
-  db.query("SELECT  FROM  WHERE id = ?", [id], (err, result) => {
+  db.query(`SELECT ${field} FROM ${table} WHERE id = ?`, [id], (err, result) => {
     if (err) return res.status(500).send(err);
     if (!result || result.length === 0 || !result[0][field]) {
       return res.status(404).send('Not found');
