@@ -94,6 +94,7 @@ const blogRoute = require("./Routes/blogroute");
 const imageRoute = require("./Routes/imageroute");
 const contactRoute = require("./Routes/contactroute");
 const eventRoute = require("./Routes/eventroute");
+const mediaRoute = require("./Routes/mediaroute");
 
 // Register Routes
 app.use("/api/admin", adminRoute);
@@ -104,6 +105,7 @@ app.use("/api/images", imageRoute);
 app.use("/api/contact", contactRoute);
 app.use("/api/events", eventRoute);
 app.use("/api/event", eventRoute);
+app.use("/api/media", mediaRoute);
 
 
 // Also support routes without /api prefix just in case

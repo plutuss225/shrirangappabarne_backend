@@ -4,8 +4,10 @@ const { base64ToBuffer, bufferToBase64 } = require("../utils/bufferUtils");
 
 function formatItem(item) {
   if (item) {
-    if (item.image) item.image = bufferToBase64(item.image);
-    if (item.video) item.video = bufferToBase64(item.video, 'video/mp4');
+    if (item.id) {
+      item.image = `/api/media/news/${item.id}/image`;
+      item.video = `/api/media/news/${item.id}/video`;
+    }
   }
   return item;
 }
@@ -43,7 +45,7 @@ exports.getAllNews = async (req, res) => {
     }
   }
 
-  let sql = "SELECT id, title, category, description, image, news_date, created_at FROM news WHERE 1=1";
+  let sql = "SELECT id, title, category, description, news_date, created_at FROM news WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -152,7 +154,7 @@ exports.getAllNews = async (req, res) => {
 
 // GET BY ID
 exports.getNewsById = (req, res) => {
-  db.query("SELECT * FROM news WHERE id=?", [req.params.id], async (err, result) => {
+  db.query("SELECT id, title, category, description, news_date, created_at FROM news WHERE id=?", [req.params.id], async (err, result) => {
     if (err) return res.json(err);
     if (Array.isArray(result)) result.forEach(formatItem);
     if (result.length === 0) return res.json(result);
@@ -286,7 +288,7 @@ exports.getCategoriesWithLatestNews = (req, res) => {
   let { page, limit } = req.query;
 
   const baseSql = `
-    SELECT n1.id, n1.title, n1.category, n1.description, n1.image, n1.news_date, n1.created_at 
+    SELECT n1.id, n1.title, n1.category, n1.description, n1.news_date, n1.created_at 
     FROM news n1
     LEFT JOIN news n2 
       ON n1.category = n2.category 
@@ -398,7 +400,7 @@ exports.getNewsByCategory = async (req, res) => {
     }
   }
 
-  let sql = "SELECT id, title, category, description, image, news_date, created_at FROM news WHERE 1=1";
+  let sql = "SELECT id, title, category, description, news_date, created_at FROM news WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -489,7 +491,7 @@ exports.getNewsByCategory = async (req, res) => {
 exports.getTopNewsByCategory = (req, res) => {
   const { category } = req.query;
 
-  let sql = "SELECT id, title, category, description, image, news_date, created_at FROM news";
+  let sql = "SELECT id, title, category, description, news_date, created_at FROM news";
   const params = [];
 
   if (category) {

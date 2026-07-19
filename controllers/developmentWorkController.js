@@ -4,8 +4,10 @@ const { base64ToBuffer, bufferToBase64 } = require("../utils/bufferUtils");
 
 function formatItem(item) {
   if (item) {
-    if (item.image) item.image = bufferToBase64(item.image);
-    if (item.video) item.video = bufferToBase64(item.video, 'video/mp4');
+    if (item.id) {
+      item.image = `/api/media/development_work/${item.id}/image`;
+      item.video = `/api/media/development_work/${item.id}/video`;
+    }
   }
   return item;
 }
@@ -35,7 +37,7 @@ async function translateDevelopmentWorkItem(item, targetLang) {
 exports.getAllDevelopmentWork = (req, res) => {
   const { page, limit, search, category, startDate, endDate } = req.query;
 
-  let sql = "SELECT id, title, category, description, image, news_date, created_at FROM development_work WHERE 1=1";
+  let sql = "SELECT id, title, category, description, news_date, created_at FROM development_work WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -143,7 +145,7 @@ exports.getAllDevelopmentWork = (req, res) => {
 
 // GET BY ID
 exports.getDevelopmentWorkById = (req, res) => {
-  db.query("SELECT * FROM development_work WHERE id=?", [req.params.id], async (err, result) => {
+  db.query("SELECT id, title, category, description, news_date, created_at FROM development_work WHERE id=?", [req.params.id], async (err, result) => {
     if (err) return res.json(err);
     if (Array.isArray(result)) result.forEach(formatItem);
     if (result.length === 0) return res.json(result);
@@ -240,7 +242,7 @@ exports.getCategories = (req, res) => {
 exports.getDevelopmentWorkByCategory = (req, res) => {
   const { category, search, page, limit } = req.query;
 
-  let sql = "SELECT id, title, category, description, image, news_date, created_at FROM development_work WHERE 1=1";
+  let sql = "SELECT id, title, category, description, news_date, created_at FROM development_work WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -330,7 +332,7 @@ exports.getDevelopmentWorkByCategory = (req, res) => {
 exports.getTopDevelopmentWorkByCategory = (req, res) => {
   const { category } = req.query;
 
-  let sql = "SELECT id, title, category, description, image, news_date, created_at FROM development_work";
+  let sql = "SELECT id, title, category, description, news_date, created_at FROM development_work";
   const params = [];
 
   if (category) {
