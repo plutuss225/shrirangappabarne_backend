@@ -43,7 +43,7 @@ exports.getAllNews = async (req, res) => {
     }
   }
 
-  let sql = "SELECT * FROM news WHERE 1=1";
+  let sql = "SELECT id, title, category, description, image, news_date, created_at FROM news WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -127,7 +127,8 @@ exports.getAllNews = async (req, res) => {
     });
   } else {
     // Backward compatible mode if no page/limit
-    // Removed LIMIT 20 so it returns all data
+    // Re-added LIMIT 20 because fetching all Base64 images breaks the frontend
+    sql += " LIMIT 20";
     db.query(sql, params, async (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
 
@@ -285,7 +286,7 @@ exports.getCategoriesWithLatestNews = (req, res) => {
   let { page, limit } = req.query;
 
   const baseSql = `
-    SELECT n1.* 
+    SELECT n1.id, n1.title, n1.category, n1.description, n1.image, n1.news_date, n1.created_at 
     FROM news n1
     LEFT JOIN news n2 
       ON n1.category = n2.category 
@@ -397,7 +398,7 @@ exports.getNewsByCategory = async (req, res) => {
     }
   }
 
-  let sql = "SELECT * FROM news WHERE 1=1";
+  let sql = "SELECT id, title, category, description, image, news_date, created_at FROM news WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -459,7 +460,8 @@ exports.getNewsByCategory = async (req, res) => {
     });
   } else {
     // Backward compatible mode if no page/limit
-    // Removed LIMIT 20 so it returns all data
+    // Re-added LIMIT 20 because fetching all Base64 images breaks the frontend
+    sql += " LIMIT 20";
     db.query(sql, params, async (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
 
@@ -487,7 +489,7 @@ exports.getNewsByCategory = async (req, res) => {
 exports.getTopNewsByCategory = (req, res) => {
   const { category } = req.query;
 
-  let sql = "SELECT * FROM news";
+  let sql = "SELECT id, title, category, description, image, news_date, created_at FROM news";
   const params = [];
 
   if (category) {

@@ -35,7 +35,7 @@ async function translateDevelopmentWorkItem(item, targetLang) {
 exports.getAllDevelopmentWork = (req, res) => {
   const { page, limit, search, category, startDate, endDate } = req.query;
 
-  let sql = "SELECT * FROM development_work WHERE 1=1";
+  let sql = "SELECT id, title, category, description, image, news_date, created_at FROM development_work WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -240,7 +240,7 @@ exports.getCategories = (req, res) => {
 exports.getDevelopmentWorkByCategory = (req, res) => {
   const { category, search, page, limit } = req.query;
 
-  let sql = "SELECT * FROM development_work WHERE 1=1";
+  let sql = "SELECT id, title, category, description, image, news_date, created_at FROM development_work WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -330,7 +330,7 @@ exports.getDevelopmentWorkByCategory = (req, res) => {
 exports.getTopDevelopmentWorkByCategory = (req, res) => {
   const { category } = req.query;
 
-  let sql = "SELECT * FROM development_work";
+  let sql = "SELECT id, title, category, description, image, news_date, created_at FROM development_work";
   const params = [];
 
   if (category) {
