@@ -1,5 +1,14 @@
 const db = require("../db");
 const { translateText, getTargetLanguage } = require("../utils/translator");
+const { base64ToBuffer, bufferToBase64 } = require("../utils/bufferUtils");
+
+function formatItem(item) {
+  if (item) {
+    if (item.image) item.image = bufferToBase64(item.image);
+  }
+  return item;
+}
+
 
 async function translateImageItem(item, targetLang) {
   if (!targetLang || !item.title) return item;
@@ -47,7 +56,8 @@ exports.getAllImages = (req, res) => {
       db.query(queryStr, queryParams, async (err, result) => {
         if (err) return res.status(500).json(err);
         
-        const targetLang = getTargetLanguage(req);
+        if (Array.isArray(result)) result.forEach(formatItem);
+    const targetLang = getTargetLanguage(req);
         if (targetLang) {
           try {
             const translatedResult = await Promise.all(
@@ -67,7 +77,8 @@ exports.getAllImages = (req, res) => {
     db.query("SELECT * FROM images ORDER BY created_at DESC LIMIT 50", async (err, result) => {
       if (err) return res.status(500).json(err);
       
-      const targetLang = getTargetLanguage(req);
+      if (Array.isArray(result)) result.forEach(formatItem);
+    const targetLang = getTargetLanguage(req);
       if (targetLang) {
         try {
           const translatedResult = await Promise.all(
@@ -88,6 +99,7 @@ exports.getAllImages = (req, res) => {
 exports.getImageById = (req, res) => {
   db.query("SELECT * FROM images WHERE id=?", [req.params.id], async (err, result) => {
     if (err) return res.status(500).json(err);
+    if (Array.isArray(result)) result.forEach(formatItem);
     if (result.length === 0) return res.status(404).json({ message: "Image not found" });
     
     const targetLang = getTargetLanguage(req);
@@ -114,10 +126,11 @@ exports.createImage = (req, res) => {
 
   db.query(
     "INSERT INTO images (image, isHeroSelectionImage, title, category) VALUES (?,?,?,?)",
-    [image, isHeroSelectionImage ? 1 : 0, title || null, category || null],
+    [base64ToBuffer(image), isHeroSelectionImage ? 1 : 0, title || null, category || null],
     (err, result) => {
       if (err) return res.status(500).json(err);
-      res.json({ message: "Image added successfully", result });
+      if (Array.isArray(result)) result.forEach(formatItem);
+    res.json({ message: "Image added successfully", result });
     }
   );
 };
@@ -132,10 +145,11 @@ exports.updateImage = (req, res) => {
 
   db.query(
     "UPDATE images SET image=?, isHeroSelectionImage=?, title=?, category=? WHERE id=?",
-    [image, isHeroSelectionImage ? 1 : 0, title || null, category || null, req.params.id],
+    [base64ToBuffer(image), isHeroSelectionImage ? 1 : 0, title || null, category || null, req.params.id],
     (err, result) => {
       if (err) return res.status(500).json(err);
-      if (result.affectedRows === 0) {
+      if (Array.isArray(result)) result.forEach(formatItem);
+    if (result.affectedRows === 0) {
         return res.status(404).json({ message: "Image not found" });
       }
       res.json({ message: "Image updated successfully" });
@@ -144,26 +158,16 @@ exports.updateImage = (req, res) => {
 };
 
 // DELETE IMAGE
-const { deleteImageFromCloudinary } = require("../utils/cloudinary");
-
 exports.deleteImage = (req, res) => {
   const imageId = req.params.id;
 
-  db.query("SELECT image FROM images WHERE id=?", [imageId], (selectErr, selectResult) => {
-    if (selectErr) return res.status(500).json(selectErr);
-
-    db.query("DELETE FROM images WHERE id=?", [imageId], async (err, result) => {
-      if (err) return res.status(500).json(err);
-      if (result.affectedRows === 0) {
-        return res.status(404).json({ message: "Image not found" });
-      }
-
-      if (selectResult.length > 0 && selectResult[0].image) {
-        await deleteImageFromCloudinary(selectResult[0].image);
-      }
-
-      res.json({ message: "Image deleted successfully" });
-    });
+  db.query("DELETE FROM images WHERE id=?", [imageId], (err, result) => {
+    if (err) return res.status(500).json(err);
+    if (Array.isArray(result)) result.forEach(formatItem);
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Image not found" });
+    }
+    res.json({ message: "Image deleted successfully" });
   });
 };
 
@@ -174,7 +178,8 @@ exports.getHeroImages = (req, res) => {
     async (err, result) => {
       if (err) return res.status(500).json(err);
 
-      const targetLang = getTargetLanguage(req);
+      if (Array.isArray(result)) result.forEach(formatItem);
+    const targetLang = getTargetLanguage(req);
       if (targetLang) {
         try {
           const translatedResult = await Promise.all(
@@ -224,7 +229,8 @@ exports.getImagesByCategory = (req, res) => {
       db.query(queryStr, queryParams, async (err, result) => {
         if (err) return res.status(500).json(err);
         
-        const targetLang = getTargetLanguage(req);
+        if (Array.isArray(result)) result.forEach(formatItem);
+    const targetLang = getTargetLanguage(req);
         if (targetLang) {
           try {
             const translatedResult = await Promise.all(
@@ -247,7 +253,8 @@ exports.getImagesByCategory = (req, res) => {
       async (err, result) => {
         if (err) return res.status(500).json(err);
 
-        const targetLang = getTargetLanguage(req);
+        if (Array.isArray(result)) result.forEach(formatItem);
+    const targetLang = getTargetLanguage(req);
         if (targetLang) {
           try {
             const translatedResult = await Promise.all(
@@ -271,7 +278,8 @@ exports.getCategories = (req, res) => {
     "SELECT DISTINCT category FROM images WHERE category IS NOT NULL AND TRIM(category) != ''",
     (err, result) => {
       if (err) return res.status(500).json(err);
-      const categories = result.map(row => row.category);
+      if (Array.isArray(result)) result.forEach(formatItem);
+    const categories = result.map(row => row.category);
       res.json(categories);
     }
   );

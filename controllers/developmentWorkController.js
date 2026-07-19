@@ -1,5 +1,15 @@
 const db = require("../db");
 const { translateText, getTargetLanguage } = require("../utils/translator");
+const { base64ToBuffer, bufferToBase64 } = require("../utils/bufferUtils");
+
+function formatItem(item) {
+  if (item) {
+    if (item.image) item.image = bufferToBase64(item.image);
+    if (item.video) item.video = bufferToBase64(item.video, 'video/mp4');
+  }
+  return item;
+}
+
 
 async function translateDevelopmentWorkItem(item, targetLang) {
   if (!targetLang) return item;
@@ -85,7 +95,8 @@ exports.getAllDevelopmentWork = (req, res) => {
       db.query(sql, params, async (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        let finalResult = result;
+        if (Array.isArray(result)) result.forEach(formatItem);
+    let finalResult = result;
         const targetLang = getTargetLanguage(req);
         if (targetLang) {
           try {
@@ -112,7 +123,8 @@ exports.getAllDevelopmentWork = (req, res) => {
     db.query(sql, params, async (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
 
-      const targetLang = getTargetLanguage(req);
+      if (Array.isArray(result)) result.forEach(formatItem);
+    const targetLang = getTargetLanguage(req);
       if (targetLang) {
         try {
           const translatedResult = await Promise.all(
@@ -133,6 +145,7 @@ exports.getAllDevelopmentWork = (req, res) => {
 exports.getDevelopmentWorkById = (req, res) => {
   db.query("SELECT * FROM development_work WHERE id=?", [req.params.id], async (err, result) => {
     if (err) return res.json(err);
+    if (Array.isArray(result)) result.forEach(formatItem);
     if (result.length === 0) return res.json(result);
     
     const targetLang = getTargetLanguage(req);
@@ -155,10 +168,11 @@ exports.createDevelopmentWork = (req, res) => {
 
   db.query(
     "INSERT INTO development_work (title, category, description, image, video, news_date) VALUES (?,?,?,?,?,?)",
-    [title, category || 'DevelopmentWork', description, image, video, news_date],
+    [title, category || 'DevelopmentWork', description, base64ToBuffer(image), base64ToBuffer(video), news_date],
     (err, result) => {
       if (err) return res.json(err);
-      res.json({ message: "DevelopmentWork added", result });
+      if (Array.isArray(result)) result.forEach(formatItem);
+    res.json({ message: "DevelopmentWork added", result });
     }
   );
 };
@@ -169,40 +183,22 @@ exports.updateDevelopmentWork = (req, res) => {
 
   db.query(
     "UPDATE development_work SET title=?, category=?, description=?, image=?, video=?, news_date=? WHERE id=?",
-    [title, category || 'DevelopmentWork', description, image, video, news_date, req.params.id],
+    [title, category || 'DevelopmentWork', description, base64ToBuffer(image), base64ToBuffer(video), news_date, req.params.id],
     (err, result) => {
       if (err) return res.json(err);
-      res.json({ message: "Updated" });
+      if (Array.isArray(result)) result.forEach(formatItem);
+    res.json({ message: "Updated" });
     }
   );
 };
 
-// DELETE NEWS
-const { deleteImageFromCloudinary } = require("../utils/cloudinary");
-
 exports.deleteDevelopmentWork = (req, res) => {
   const development_workId = req.params.id;
   
-  // First get the development_work item to find its image
-  db.query("SELECT image FROM development_work WHERE id=?", [development_workId], (selectErr, selectResult) => {
-    if (selectErr) return res.status(500).json(selectErr);
-    
-    // Proceed to delete the record
-    db.query("DELETE FROM development_work WHERE id=?", [development_workId], async (err, result) => {
-      if (err) return res.status(500).json(err);
-      
-      // If we found the image, delete it from Cloudinary
-      if (selectResult.length > 0) {
-        console.log("deleteDevelopmentWork -> Image URL from DB:", selectResult[0].image);
-        if (selectResult[0].image) {
-          await deleteImageFromCloudinary(selectResult[0].image);
-        }
-      } else {
-        console.log("deleteDevelopmentWork -> No image found in DB for development_workId:", development_workId);
-      }
-      
-      res.json({ message: "Deleted" });
-    });
+  db.query("DELETE FROM development_work WHERE id=?", [development_workId], (err, result) => {
+    if (err) return res.status(500).json(err);
+    if (Array.isArray(result)) result.forEach(formatItem);
+    res.json({ message: "Deleted" });
   });
 };
 
@@ -213,7 +209,8 @@ exports.getCategories = (req, res) => {
     async (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
 
-      const targetLang = getTargetLanguage(req);
+      if (Array.isArray(result)) result.forEach(formatItem);
+    const targetLang = getTargetLanguage(req);
       const originalCategories = result.map((r) => r.category);
 
       if (targetLang) {
@@ -281,7 +278,8 @@ exports.getDevelopmentWorkByCategory = (req, res) => {
       db.query(sql, params, async (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        let finalResult = result;
+        if (Array.isArray(result)) result.forEach(formatItem);
+    let finalResult = result;
         const targetLang = getTargetLanguage(req);
         if (targetLang) {
           try {
@@ -308,7 +306,8 @@ exports.getDevelopmentWorkByCategory = (req, res) => {
     db.query(sql, params, async (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
 
-      const targetLang = getTargetLanguage(req);
+      if (Array.isArray(result)) result.forEach(formatItem);
+    const targetLang = getTargetLanguage(req);
       if (targetLang) {
         try {
           const translated = await Promise.all(
@@ -344,6 +343,7 @@ exports.getTopDevelopmentWorkByCategory = (req, res) => {
   db.query(sql, params, async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
 
+    if (Array.isArray(result)) result.forEach(formatItem);
     const targetLang = getTargetLanguage(req);
     if (targetLang) {
       try {

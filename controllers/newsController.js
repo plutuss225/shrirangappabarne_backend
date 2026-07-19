@@ -1,5 +1,15 @@
 const db = require("../db");
 const { translateText, getTargetLanguage } = require("../utils/translator");
+const { base64ToBuffer, bufferToBase64 } = require("../utils/bufferUtils");
+
+function formatItem(item) {
+  if (item) {
+    if (item.image) item.image = bufferToBase64(item.image);
+    if (item.video) item.video = bufferToBase64(item.video, 'video/mp4');
+  }
+  return item;
+}
+
 
 async function translateNewsItem(item, targetLang) {
   if (!targetLang) return item;
@@ -93,7 +103,8 @@ exports.getAllNews = async (req, res) => {
       db.query(sql, params, async (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        let finalResult = result;
+        if (Array.isArray(result)) result.forEach(formatItem);
+    let finalResult = result;
         const targetLang = getTargetLanguage(req);
         if (targetLang) {
           try {
@@ -120,7 +131,8 @@ exports.getAllNews = async (req, res) => {
     db.query(sql, params, async (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
 
-      const targetLang = getTargetLanguage(req);
+      if (Array.isArray(result)) result.forEach(formatItem);
+    const targetLang = getTargetLanguage(req);
       if (targetLang) {
         try {
           const translatedResult = await Promise.all(
@@ -141,6 +153,7 @@ exports.getAllNews = async (req, res) => {
 exports.getNewsById = (req, res) => {
   db.query("SELECT * FROM news WHERE id=?", [req.params.id], async (err, result) => {
     if (err) return res.json(err);
+    if (Array.isArray(result)) result.forEach(formatItem);
     if (result.length === 0) return res.json(result);
     
     const targetLang = getTargetLanguage(req);
@@ -163,10 +176,11 @@ exports.createNews = (req, res) => {
 
   db.query(
     "INSERT INTO news (title, category, description, image, video, news_date) VALUES (?,?,?,?,?,?)",
-    [title, category || 'News', description, image, video, news_date],
+    [title, category || 'News', description, base64ToBuffer(image), base64ToBuffer(video), news_date],
     (err, result) => {
       if (err) return res.json(err);
-      res.json({ message: "News added", result });
+      if (Array.isArray(result)) result.forEach(formatItem);
+    res.json({ message: "News added", result });
     }
   );
 };
@@ -177,40 +191,23 @@ exports.updateNews = (req, res) => {
 
   db.query(
     "UPDATE news SET title=?, category=?, description=?, image=?, video=?, news_date=? WHERE id=?",
-    [title, category || 'News', description, image, video, news_date, req.params.id],
+    [title, category || 'News', description, base64ToBuffer(image), base64ToBuffer(video), news_date, req.params.id],
     (err, result) => {
       if (err) return res.json(err);
-      res.json({ message: "Updated" });
+      if (Array.isArray(result)) result.forEach(formatItem);
+    res.json({ message: "Updated" });
     }
   );
 };
 
 // DELETE NEWS
-const { deleteImageFromCloudinary } = require("../utils/cloudinary");
-
 exports.deleteNews = (req, res) => {
   const newsId = req.params.id;
   
-  // First get the news item to find its image
-  db.query("SELECT image FROM news WHERE id=?", [newsId], (selectErr, selectResult) => {
-    if (selectErr) return res.status(500).json(selectErr);
-    
-    // Proceed to delete the record
-    db.query("DELETE FROM news WHERE id=?", [newsId], async (err, result) => {
-      if (err) return res.status(500).json(err);
-      
-      // If we found the image, delete it from Cloudinary
-      if (selectResult.length > 0) {
-        console.log("deleteNews -> Image URL from DB:", selectResult[0].image);
-        if (selectResult[0].image) {
-          await deleteImageFromCloudinary(selectResult[0].image);
-        }
-      } else {
-        console.log("deleteNews -> No image found in DB for newsId:", newsId);
-      }
-      
-      res.json({ message: "Deleted" });
-    });
+  db.query("DELETE FROM news WHERE id=?", [newsId], (err, result) => {
+    if (err) return res.status(500).json(err);
+    if (Array.isArray(result)) result.forEach(formatItem);
+    res.json({ message: "Deleted" });
   });
 };
 
@@ -235,7 +232,8 @@ exports.getCategories = (req, res) => {
 
         db.query(baseSql + " LIMIT ? OFFSET ?", [parseInt(limit), offset], async (err, result) => {
           if (err) return res.status(500).json({ error: err.message });
-          const targetLang = getTargetLanguage(req);
+          if (Array.isArray(result)) result.forEach(formatItem);
+    const targetLang = getTargetLanguage(req);
           const originalCategories = result.map((r) => r.category);
           if (targetLang) {
             try {
@@ -259,7 +257,8 @@ exports.getCategories = (req, res) => {
   } else {
     db.query(baseSql, async (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
-      const targetLang = getTargetLanguage(req);
+      if (Array.isArray(result)) result.forEach(formatItem);
+    const targetLang = getTargetLanguage(req);
       const originalCategories = result.map((r) => r.category);
       if (targetLang) {
         try {
@@ -311,7 +310,8 @@ exports.getCategoriesWithLatestNews = (req, res) => {
         db.query(sql, [parseInt(limit), offset], async (err, result) => {
           if (err) return res.status(500).json({ error: err.message });
 
-          const targetLang = getTargetLanguage(req);
+          if (Array.isArray(result)) result.forEach(formatItem);
+    const targetLang = getTargetLanguage(req);
 
           if (targetLang) {
             try {
@@ -354,7 +354,8 @@ exports.getCategoriesWithLatestNews = (req, res) => {
     db.query(baseSql, async (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
 
-      const targetLang = getTargetLanguage(req);
+      if (Array.isArray(result)) result.forEach(formatItem);
+    const targetLang = getTargetLanguage(req);
 
       if (targetLang) {
         try {
@@ -434,7 +435,8 @@ exports.getNewsByCategory = async (req, res) => {
       db.query(sql, params, async (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        let finalResult = result;
+        if (Array.isArray(result)) result.forEach(formatItem);
+    let finalResult = result;
         const targetLang = getTargetLanguage(req);
         if (targetLang) {
           try {
@@ -461,7 +463,8 @@ exports.getNewsByCategory = async (req, res) => {
     db.query(sql, params, async (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
 
-      const targetLang = getTargetLanguage(req);
+      if (Array.isArray(result)) result.forEach(formatItem);
+    const targetLang = getTargetLanguage(req);
       if (targetLang) {
         try {
           const translated = await Promise.all(
@@ -497,6 +500,7 @@ exports.getTopNewsByCategory = (req, res) => {
   db.query(sql, params, async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
 
+    if (Array.isArray(result)) result.forEach(formatItem);
     const targetLang = getTargetLanguage(req);
     if (targetLang) {
       try {

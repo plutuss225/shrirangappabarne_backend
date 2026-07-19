@@ -47,7 +47,7 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 // Upload Endpoint
-const { uploadImage } = require("./utils/cloudinary");
+const sharp = require("sharp");
 
 app.post("/api/upload", async (req, res) => {
   const { name, base64 } = req.body;
@@ -59,13 +59,26 @@ app.post("/api/upload", async (req, res) => {
       return res.status(400).json({ error: "Invalid base64 string format" });
     }
 
+    const mimeType = base64.substring(5, headerEnd);
+    let finalBase64 = base64;
 
+    if (mimeType.startsWith("image/")) {
+      const base64Data = base64.substring(headerEnd + 8);
+      const buffer = Buffer.from(base64Data, "base64");
 
-    const secureUrl = await uploadImage(base64, "uploads");
-    res.json({ url: secureUrl });
+      const compressedBuffer = await sharp(buffer)
+        .resize({ width: 1200, withoutEnlargement: true })
+        .jpeg({ quality: 80 })
+        .toBuffer();
+
+      finalBase64 = `data:image/jpeg;base64,${compressedBuffer.toString("base64")}`;
+    }
+
+    // Return the base64 string as the URL so that controllers save it directly
+    res.json({ url: finalBase64 });
   } catch (err) {
     console.error("Upload error:", err);
-    res.status(500).json({ error: "Failed to upload file: " + err.message });
+    res.status(500).json({ error: "Failed to process file: " + err.message });
   }
 });
 

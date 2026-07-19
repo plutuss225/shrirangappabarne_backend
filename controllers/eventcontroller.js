@@ -1,5 +1,14 @@
 const db = require("../db");
 const { translateText, getTargetLanguage } = require("../utils/translator");
+const { base64ToBuffer, bufferToBase64 } = require("../utils/bufferUtils");
+
+function formatItem(item) {
+  if (item) {
+    if (item.main_image) item.main_image = bufferToBase64(item.main_image);
+  }
+  return item;
+}
+
 
 async function translateEventItem(item, targetLang) {
   if (!targetLang) return item;
@@ -24,6 +33,7 @@ exports.getAllEvents = (req, res) => {
   db.query("SELECT * FROM event ORDER BY id DESC", async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
     
+    if (Array.isArray(result)) result.forEach(formatItem);
     const targetLang = getTargetLanguage(req);
     if (targetLang) {
       try {
@@ -44,6 +54,7 @@ exports.getAllEvents = (req, res) => {
 exports.getEventById = (req, res) => {
   db.query("SELECT * FROM event WHERE id=?", [req.params.id], async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
+    if (Array.isArray(result)) result.forEach(formatItem);
     if (result.length === 0) return res.json(result);
     
     const targetLang = getTargetLanguage(req);
@@ -68,10 +79,11 @@ exports.createEvent = (req, res) => {
 
   db.query(
     "INSERT INTO event (title, description, main_image, images) VALUES (?,?,?,?)",
-    [title, description, main_image, imagesStr],
+    [title, description, base64ToBuffer(main_image), imagesStr],
     (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ message: "Event added", result });
+      if (Array.isArray(result)) result.forEach(formatItem);
+    res.json({ message: "Event added", result });
     }
   );
 };
@@ -84,50 +96,22 @@ exports.updateEvent = (req, res) => {
 
   db.query(
     "UPDATE event SET title=?, description=?, main_image=?, images=? WHERE id=?",
-    [title, description, main_image, imagesStr, req.params.id],
+    [title, description, base64ToBuffer(main_image), imagesStr, req.params.id],
     (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ message: "Updated" });
+      if (Array.isArray(result)) result.forEach(formatItem);
+    res.json({ message: "Updated" });
     }
   );
 };
 
 // DELETE EVENT
-const { deleteImageFromCloudinary } = require("../utils/cloudinary");
-
 exports.deleteEvent = (req, res) => {
   const eventId = req.params.id;
   
-  // Get the event to find its images
-  db.query("SELECT main_image, images FROM event WHERE id=?", [eventId], (selectErr, selectResult) => {
-    if (selectErr) return res.status(500).json({ error: selectErr.message });
-    
-    // Proceed to delete the record
-    db.query("DELETE FROM event WHERE id=?", [eventId], async (err, result) => {
-      if (err) return res.status(500).json({ error: err.message });
-      
-      // If we found the image, delete it from Cloudinary
-      if (selectResult.length > 0) {
-        if (selectResult[0].main_image) {
-          try {
-            await deleteImageFromCloudinary(selectResult[0].main_image);
-          } catch(e) {
-            console.error(e);
-          }
-        }
-        if (selectResult[0].images) {
-          try {
-            const imagesArray = typeof selectResult[0].images === 'string' ? JSON.parse(selectResult[0].images) : selectResult[0].images;
-            for (let img of imagesArray) {
-              await deleteImageFromCloudinary(img);
-            }
-          } catch(e) {
-            console.error(e);
-          }
-        }
-      }
-      
-      res.json({ message: "Deleted" });
-    });
+  db.query("DELETE FROM event WHERE id=?", [eventId], (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (Array.isArray(result)) result.forEach(formatItem);
+    res.json({ message: "Deleted" });
   });
 };

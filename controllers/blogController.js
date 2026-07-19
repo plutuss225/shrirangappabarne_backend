@@ -1,5 +1,14 @@
 const db = require("../db");
 const { translateText, getTargetLanguage } = require("../utils/translator");
+const { base64ToBuffer, bufferToBase64 } = require("../utils/bufferUtils");
+
+function formatItem(item) {
+  if (item) {
+    if (item.image) item.image = bufferToBase64(item.image);
+  }
+  return item;
+}
+
 
 // Helper to translate blog_points JSON
 async function translateBlogPoints(points, targetLang) {
@@ -127,6 +136,7 @@ exports.getAllBlogs = (req, res) => {
   db.query(query, params, async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
 
+    if (Array.isArray(result)) result.forEach(formatItem);
     const targetLang = getTargetLanguage(req);
     try {
       const translatedResult = await Promise.all(
@@ -163,6 +173,7 @@ exports.getBlogByIdOrSlug = (req, res) => {
 
   db.query(query, params, async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
+    if (Array.isArray(result)) result.forEach(formatItem);
     if (result.length === 0) return res.status(404).json({ message: "Blog not found" });
 
     const targetLang = getTargetLanguage(req);
@@ -210,7 +221,7 @@ exports.createBlog = (req, res) => {
     [
       title,
       finalSlug,
-      image || null,
+      image ? base64ToBuffer(image) : null,
       content,
       meta_title || null,
       meta_description || null,
@@ -274,7 +285,7 @@ exports.updateBlog = (req, res) => {
       [
         title,
         finalSlug,
-        image || null,
+        image ? base64ToBuffer(image) : null,
         content,
         meta_title || null,
         meta_description || null,
@@ -297,25 +308,15 @@ exports.updateBlog = (req, res) => {
   });
 };
 
-// DELETE BLOG
-const { deleteImageFromCloudinary } = require("../utils/cloudinary");
-
 exports.deleteBlog = (req, res) => {
   const { id } = req.params;
 
-  db.query("SELECT image FROM blogs WHERE id = ?", [id], (selectErr, selectResult) => {
-    if (selectErr) return res.status(500).json({ error: selectErr.message });
+  db.query("DELETE FROM blogs WHERE id = ?", [id], (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (Array.isArray(result)) result.forEach(formatItem);
+    if (result.affectedRows === 0) return res.status(404).json({ error: "Blog not found" });
 
-    db.query("DELETE FROM blogs WHERE id = ?", [id], async (err, result) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (result.affectedRows === 0) return res.status(404).json({ error: "Blog not found" });
-
-      if (selectResult.length > 0 && selectResult[0].image) {
-        await deleteImageFromCloudinary(selectResult[0].image);
-      }
-
-      res.json({ message: "Blog deleted successfully" });
-    });
+    res.json({ message: "Blog deleted successfully" });
   });
 };
 
@@ -327,7 +328,8 @@ exports.getBlogAuthors = (req, res) => {
     async (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
 
-      const targetLang = getTargetLanguage(req);
+      if (Array.isArray(result)) result.forEach(formatItem);
+    const targetLang = getTargetLanguage(req);
       const authors = result.map((r) => r.author);
 
       if (targetLang) {
@@ -354,7 +356,8 @@ exports.getTopBlogs = (req, res) => {
     async (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
 
-      const targetLang = getTargetLanguage(req);
+      if (Array.isArray(result)) result.forEach(formatItem);
+    const targetLang = getTargetLanguage(req);
       try {
         const translated = await Promise.all(
           result.map((item) => translateBlogItem(item, targetLang))
@@ -391,6 +394,7 @@ exports.getPublicBlogs = (req, res) => {
   db.query(query, params, async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
 
+    if (Array.isArray(result)) result.forEach(formatItem);
     const targetLang = getTargetLanguage(req);
     try {
       const translated = await Promise.all(
