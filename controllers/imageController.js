@@ -3,8 +3,13 @@ const { translateText, getTargetLanguage } = require("../utils/translator");
 const { base64ToBuffer, bufferToBase64 } = require("../utils/bufferUtils");
 
 function formatItem(item) {
-  if (item) {
-    if (item.image) item.image = bufferToBase64(item.image);
+  if (item && item.id) {
+    if (item.has_image) {
+      item.image = `/api/media/images/${item.id}/image`;
+    } else if (item.hasOwnProperty('has_image')) {
+      item.image = null;
+    }
+    delete item.has_image;
   }
   return item;
 }
@@ -31,7 +36,7 @@ exports.getAllImages = (req, res) => {
   const search = req.query.search || "";
   const isPaginated = !isNaN(page);
 
-  let queryStr = "SELECT * FROM images";
+  let queryStr = "SELECT id, title, category, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images";
   let countQueryStr = "SELECT COUNT(*) as total FROM images";
   let queryParams = [];
   
@@ -57,7 +62,7 @@ exports.getAllImages = (req, res) => {
         if (err) return res.status(500).json(err);
         
         if (Array.isArray(result)) result.forEach(formatItem);
-    const targetLang = getTargetLanguage(req);
+        const targetLang = getTargetLanguage(req);
         if (targetLang) {
           try {
             const translatedResult = await Promise.all(
@@ -74,11 +79,11 @@ exports.getAllImages = (req, res) => {
     });
   } else {
     // Original behavior for backward compatibility
-    db.query("SELECT * FROM images ORDER BY created_at DESC LIMIT 50", async (err, result) => {
+    db.query("SELECT id, title, category, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images ORDER BY created_at DESC LIMIT 50", async (err, result) => {
       if (err) return res.status(500).json(err);
       
       if (Array.isArray(result)) result.forEach(formatItem);
-    const targetLang = getTargetLanguage(req);
+      const targetLang = getTargetLanguage(req);
       if (targetLang) {
         try {
           const translatedResult = await Promise.all(
@@ -97,7 +102,7 @@ exports.getAllImages = (req, res) => {
 
 // GET BY ID
 exports.getImageById = (req, res) => {
-  db.query("SELECT * FROM images WHERE id=?", [req.params.id], async (err, result) => {
+  db.query("SELECT id, title, category, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images WHERE id=?", [req.params.id], async (err, result) => {
     if (err) return res.status(500).json(err);
     if (Array.isArray(result)) result.forEach(formatItem);
     if (result.length === 0) return res.status(404).json({ message: "Image not found" });
@@ -174,7 +179,7 @@ exports.deleteImage = (req, res) => {
 // GET HERO IMAGES (isHeroSelectionImage = 1, latest first)
 exports.getHeroImages = (req, res) => {
   db.query(
-    "SELECT * FROM images WHERE isHeroSelectionImage = 1 ORDER BY created_at DESC LIMIT 20",
+    "SELECT id, title, category, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images WHERE isHeroSelectionImage = 1 ORDER BY created_at DESC LIMIT 20",
     async (err, result) => {
       if (err) return res.status(500).json(err);
 
@@ -204,7 +209,7 @@ exports.getImagesByCategory = (req, res) => {
   const search = req.query.search || "";
   const isPaginated = !isNaN(page);
 
-  let queryStr = "SELECT * FROM images WHERE category = ?";
+  let queryStr = "SELECT id, title, category, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images WHERE category = ?";
   let countQueryStr = "SELECT COUNT(*) as total FROM images WHERE category = ?";
   let queryParams = [category];
 
@@ -248,7 +253,7 @@ exports.getImagesByCategory = (req, res) => {
   } else {
     // Original behavior
     db.query(
-      "SELECT * FROM images WHERE category = ? ORDER BY created_at DESC LIMIT 50",
+      "SELECT id, title, category, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images WHERE category = ? ORDER BY created_at DESC LIMIT 50",
       [category],
       async (err, result) => {
         if (err) return res.status(500).json(err);

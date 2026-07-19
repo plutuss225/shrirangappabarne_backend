@@ -3,18 +3,22 @@ const { translateText, getTargetLanguage } = require("../utils/translator");
 const { base64ToBuffer, bufferToBase64 } = require("../utils/bufferUtils");
 
 function formatItem(item) {
-  if (item) {
-    if (item.id) {
-      if (item.has_video) {
-        item.image = `/api/media/development_work/${item.id}/video`;
-        item.video = item.image;
-      } else {
-        item.image = item.has_image ? `/api/media/development_work/${item.id}/image` : null;
-        item.video = null;
-      }
-      delete item.has_image;
-      delete item.has_video;
+  if (item && item.id) {
+    if (item.has_image) {
+      item.image = `/api/media/development_work/${item.id}/image`;
+    } else if (item.hasOwnProperty('has_image')) {
+      item.image = null;
     }
+    
+    if (item.has_video) {
+      item.image = `/api/media/development_work/${item.id}/video`;
+      item.video = item.image;
+    } else if (item.hasOwnProperty('has_video')) {
+      item.video = null;
+    }
+
+    delete item.has_image;
+    delete item.has_video;
   }
   return item;
 }

@@ -122,10 +122,20 @@ exports.getLatestData = async (req, res) => {
 
   try {
     const [latestNews, latestBlogs, latestAdmins] = await Promise.all([
-      queryPromise("SELECT id, category, title, description, image, created_at, news_date FROM news ORDER BY id DESC LIMIT 5"),
-      queryPromise("SELECT id, title, slug, image, author, status, published_at, created_at, updated_at FROM blogs ORDER BY id DESC LIMIT 5"),
+      queryPromise("SELECT id, category, title, description, LENGTH(image) > 0 as has_image, created_at, news_date FROM news ORDER BY id DESC LIMIT 5"),
+      queryPromise("SELECT id, title, slug, LENGTH(image) > 0 as has_image, author, status, published_at, created_at, updated_at FROM blogs ORDER BY id DESC LIMIT 5"),
       queryPromise("SELECT id, username FROM admins ORDER BY id DESC LIMIT 5")
     ]);
+
+    latestNews.forEach(item => {
+      item.image = item.has_image ? `/api/media/news/${item.id}/image` : null;
+      delete item.has_image;
+    });
+
+    latestBlogs.forEach(item => {
+      item.image = item.has_image ? `/api/media/blogs/${item.id}/image` : null;
+      delete item.has_image;
+    });
 
     const targetLang = getTargetLanguage(req);
 

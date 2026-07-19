@@ -18,14 +18,14 @@ router.get("/", getAllImages);
 // GET HERO IMAGES ONLY (isHeroSelectionImage = 1, latest first)
 router.get("/hero", getHeroImages);
 
+// GET ALL CATEGORIES
+router.get("/categories", getCategories);
+
 // GET BY ID
 router.get("/:id", getImageById);
 
 // GET IMAGES BY CATEGORY
 router.get("/category/:category", getImagesByCategory);
-
-// GET ALL CATEGORIES
-router.get("/categories", getCategories);
 
 
 // INSERT IMAGE

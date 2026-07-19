@@ -3,8 +3,13 @@ const { translateText, getTargetLanguage } = require("../utils/translator");
 const { base64ToBuffer, bufferToBase64 } = require("../utils/bufferUtils");
 
 function formatItem(item) {
-  if (item) {
-    if (item.image) item.image = bufferToBase64(item.image);
+  if (item && item.id) {
+    if (item.has_image) {
+      item.image = `/api/media/blogs/${item.id}/image`;
+    } else if (item.hasOwnProperty('has_image')) {
+      item.image = null;
+    }
+    delete item.has_image;
   }
   return item;
 }
@@ -127,7 +132,7 @@ exports.getAllBlogs = (req, res) => {
     }
   }
 
-  let query = "SELECT * FROM blogs";
+  let query = "SELECT id, title, slug, author, meta_title, meta_description, published_at, created_at, status, content, blog_points, LENGTH(image) > 0 as has_image FROM blogs";
   if (conditions.length > 0) {
     query += " WHERE " + conditions.join(" AND ");
   }
@@ -162,12 +167,12 @@ exports.getAllBlogs = (req, res) => {
 // GET BLOG BY ID OR SLUG
 exports.getBlogByIdOrSlug = (req, res) => {
   const { idOrSlug } = req.params;
-  let query = "SELECT * FROM blogs WHERE slug = ?";
+  let query = "SELECT id, title, slug, author, meta_title, meta_description, published_at, created_at, status, content, blog_points, LENGTH(image) > 0 as has_image FROM blogs WHERE slug = ?";
   let params = [idOrSlug];
 
   // If idOrSlug is an integer, check both id and slug
   if (!isNaN(idOrSlug)) {
-    query = "SELECT * FROM blogs WHERE id = ? OR slug = ?";
+    query = "SELECT id, title, slug, author, meta_title, meta_description, published_at, created_at, status, content, blog_points, LENGTH(image) > 0 as has_image FROM blogs WHERE id = ? OR slug = ?";
     params = [parseInt(idOrSlug), idOrSlug];
   }
 
@@ -352,7 +357,7 @@ exports.getBlogAuthors = (req, res) => {
 // Usage: GET /blogs/top
 exports.getTopBlogs = (req, res) => {
   db.query(
-    "SELECT id, title, slug, image, author, meta_description, published_at, created_at FROM blogs WHERE status = 'published' ORDER BY id DESC LIMIT 4",
+    "SELECT id, title, slug, LENGTH(image) > 0 as has_image, author, meta_description, published_at, created_at FROM blogs WHERE status = 'published' ORDER BY id DESC LIMIT 4",
     async (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
 
@@ -387,7 +392,7 @@ exports.getPublicBlogs = (req, res) => {
   }
 
   const query =
-    "SELECT id, title, slug, image, author, meta_description, published_at, created_at FROM blogs WHERE " +
+    "SELECT id, title, slug, LENGTH(image) > 0 as has_image, author, meta_description, published_at, created_at FROM blogs WHERE " +
     conditions.join(" AND ") +
     " ORDER BY id DESC LIMIT 20";
 

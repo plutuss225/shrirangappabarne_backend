@@ -3,8 +3,13 @@ const { translateText, getTargetLanguage } = require("../utils/translator");
 const { base64ToBuffer, bufferToBase64 } = require("../utils/bufferUtils");
 
 function formatItem(item) {
-  if (item) {
-    if (item.main_image) item.main_image = bufferToBase64(item.main_image);
+  if (item && item.id) {
+    if (item.has_main_image) {
+      item.main_image = `/api/media/event/${item.id}/main_image`;
+    } else if (item.hasOwnProperty('has_main_image')) {
+      item.main_image = null;
+    }
+    delete item.has_main_image;
   }
   return item;
 }
@@ -30,7 +35,7 @@ async function translateEventItem(item, targetLang) {
 
 // GET ALL EVENTS
 exports.getAllEvents = (req, res) => {
-  db.query("SELECT * FROM event ORDER BY id DESC", async (err, result) => {
+  db.query("SELECT id, title, description, created_at, images, LENGTH(main_image) > 0 as has_main_image FROM event ORDER BY id DESC", async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
     
     if (Array.isArray(result)) result.forEach(formatItem);
@@ -52,7 +57,7 @@ exports.getAllEvents = (req, res) => {
 
 // GET BY ID
 exports.getEventById = (req, res) => {
-  db.query("SELECT * FROM event WHERE id=?", [req.params.id], async (err, result) => {
+  db.query("SELECT id, title, description, created_at, images, LENGTH(main_image) > 0 as has_main_image FROM event WHERE id = ?", [req.params.id], async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
     if (Array.isArray(result)) result.forEach(formatItem);
     if (result.length === 0) return res.json(result);
