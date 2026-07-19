@@ -5,8 +5,13 @@ const { base64ToBuffer, bufferToBase64 } = require("../utils/bufferUtils");
 function formatItem(item) {
   if (item) {
     if (item.id) {
-      item.image = item.has_image ? `/api/media/development_work/${item.id}/image` : null;
-      item.video = item.has_video ? `/api/media/development_work/${item.id}/video` : null;
+      if (item.has_video) {
+        item.image = `/api/media/development_work/${item.id}/video`;
+        item.video = item.image;
+      } else {
+        item.image = item.has_image ? `/api/media/development_work/${item.id}/image` : null;
+        item.video = null;
+      }
       delete item.has_image;
       delete item.has_video;
     }
