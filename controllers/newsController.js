@@ -5,8 +5,10 @@ const { base64ToBuffer, bufferToBase64 } = require("../utils/bufferUtils");
 function formatItem(item) {
   if (item) {
     if (item.id) {
-      item.image = `/api/media/news/${item.id}/image`;
-      item.video = `/api/media/news/${item.id}/video`;
+      item.image = item.has_image ? `/api/media/news/${item.id}/image` : null;
+      item.video = item.has_video ? `/api/media/news/${item.id}/video` : null;
+      delete item.has_image;
+      delete item.has_video;
     }
   }
   return item;
@@ -45,7 +47,7 @@ exports.getAllNews = async (req, res) => {
     }
   }
 
-  let sql = "SELECT id, title, category, description, news_date, created_at FROM news WHERE 1=1";
+  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video FROM news WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -154,7 +156,7 @@ exports.getAllNews = async (req, res) => {
 
 // GET BY ID
 exports.getNewsById = (req, res) => {
-  db.query("SELECT id, title, category, description, news_date, created_at FROM news WHERE id=?", [req.params.id], async (err, result) => {
+  db.query("SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video FROM news WHERE id=?", [req.params.id], async (err, result) => {
     if (err) return res.json(err);
     if (Array.isArray(result)) result.forEach(formatItem);
     if (result.length === 0) return res.json(result);
@@ -288,7 +290,7 @@ exports.getCategoriesWithLatestNews = (req, res) => {
   let { page, limit } = req.query;
 
   const baseSql = `
-    SELECT n1.id, n1.title, n1.category, n1.description, n1.news_date, n1.created_at 
+    SELECT n1.id, n1.title, n1.category, n1.description, n1.news_date, n1.created_at, LENGTH(n1.image) > 0 as has_image, LENGTH(n1.video) > 0 as has_video
     FROM news n1
     LEFT JOIN news n2 
       ON n1.category = n2.category 
@@ -400,7 +402,7 @@ exports.getNewsByCategory = async (req, res) => {
     }
   }
 
-  let sql = "SELECT id, title, category, description, news_date, created_at FROM news WHERE 1=1";
+  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video FROM news WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -491,7 +493,7 @@ exports.getNewsByCategory = async (req, res) => {
 exports.getTopNewsByCategory = (req, res) => {
   const { category } = req.query;
 
-  let sql = "SELECT id, title, category, description, news_date, created_at FROM news";
+  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video FROM news";
   const params = [];
 
   if (category) {
