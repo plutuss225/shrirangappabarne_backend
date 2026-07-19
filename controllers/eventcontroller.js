@@ -5,11 +5,16 @@ const { base64ToBuffer, bufferToBase64 } = require("../utils/bufferUtils");
 function formatItem(item) {
   if (item && item.id) {
     if (item.has_main_image) {
-      item.main_image = `/api/media/event/${item.id}/main_image`;
+      if (item.main_image_url && (item.main_image_url.startsWith('http') || item.main_image_url.startsWith('blob:'))) {
+        item.main_image = item.main_image_url;
+      } else {
+        item.main_image = `/api/media/event/${item.id}/main_image`;
+      }
     } else if (item.hasOwnProperty('has_main_image')) {
       item.main_image = null;
     }
     delete item.has_main_image;
+    delete item.main_image_url;
   }
   return item;
 }
@@ -35,7 +40,7 @@ async function translateEventItem(item, targetLang) {
 
 // GET ALL EVENTS
 exports.getAllEvents = (req, res) => {
-  db.query("SELECT id, title, description, created_at, images, LENGTH(main_image) > 0 as has_main_image FROM event ORDER BY id DESC", async (err, result) => {
+  db.query("SELECT id, title, description, created_at, images, LENGTH(main_image) > 0 as has_main_image, CASE WHEN LENGTH(main_image) < 300 THEN CONVERT(main_image, CHAR) ELSE NULL END as main_image_url FROM event ORDER BY id DESC", async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
     
     if (Array.isArray(result)) result.forEach(formatItem);
@@ -57,7 +62,7 @@ exports.getAllEvents = (req, res) => {
 
 // GET BY ID
 exports.getEventById = (req, res) => {
-  db.query("SELECT id, title, description, created_at, images, LENGTH(main_image) > 0 as has_main_image FROM event WHERE id = ?", [req.params.id], async (err, result) => {
+  db.query("SELECT id, title, description, created_at, images, LENGTH(main_image) > 0 as has_main_image, CASE WHEN LENGTH(main_image) < 300 THEN CONVERT(main_image, CHAR) ELSE NULL END as main_image_url FROM event WHERE id = ?", [req.params.id], async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
     if (Array.isArray(result)) result.forEach(formatItem);
     if (result.length === 0) return res.json(result);
@@ -99,15 +104,22 @@ exports.updateEvent = (req, res) => {
   
   const imagesStr = Array.isArray(images) ? JSON.stringify(images) : JSON.stringify([]);
 
-  db.query(
-    "UPDATE event SET title=?, description=?, main_image=?, images=? WHERE id=?",
-    [title, description, base64ToBuffer(main_image), imagesStr, req.params.id],
-    (err, result) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (Array.isArray(result)) result.forEach(formatItem);
+  let sql = "UPDATE event SET title=?, description=?, images=?";
+  let params = [title, description, imagesStr];
+
+  if (main_image !== undefined && !(typeof main_image === 'string' && main_image.startsWith('/api/'))) {
+    sql += ", main_image=?";
+    params.push(base64ToBuffer(main_image));
+  }
+
+  sql += " WHERE id=?";
+  params.push(req.params.id);
+
+  db.query(sql, params, (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (Array.isArray(result)) result.forEach(formatItem);
     res.json({ message: "Updated" });
-    }
-  );
+  });
 };
 
 // DELETE EVENT

@@ -144,22 +144,25 @@ exports.createImage = (req, res) => {
 exports.updateImage = (req, res) => {
   const { image, isHeroSelectionImage, title, category } = req.body;
 
-  if (!image) {
-    return res.status(400).json({ error: "Image path/URL is required" });
+  let sql = "UPDATE images SET isHeroSelectionImage=?, title=?, category=?";
+  let params = [isHeroSelectionImage ? 1 : 0, title || null, category || null];
+
+  if (image !== undefined && !(typeof image === 'string' && image.startsWith('/api/'))) {
+    sql += ", image=?";
+    params.push(base64ToBuffer(image));
   }
 
-  db.query(
-    "UPDATE images SET image=?, isHeroSelectionImage=?, title=?, category=? WHERE id=?",
-    [base64ToBuffer(image), isHeroSelectionImage ? 1 : 0, title || null, category || null, req.params.id],
-    (err, result) => {
-      if (err) return res.status(500).json(err);
-      if (Array.isArray(result)) result.forEach(formatItem);
+  sql += " WHERE id=?";
+  params.push(req.params.id);
+
+  db.query(sql, params, (err, result) => {
+    if (err) return res.status(500).json(err);
+    if (Array.isArray(result)) result.forEach(formatItem);
     if (result.affectedRows === 0) {
-        return res.status(404).json({ message: "Image not found" });
-      }
-      res.json({ message: "Image updated successfully" });
+      return res.status(404).json({ message: "Image not found" });
     }
-  );
+    res.json({ message: "Image updated successfully" });
+  });
 };
 
 // DELETE IMAGE

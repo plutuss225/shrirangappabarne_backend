@@ -5,20 +5,36 @@ const { base64ToBuffer, bufferToBase64 } = require("../utils/bufferUtils");
 function formatItem(item) {
   if (item && item.id) {
     if (item.has_image) {
-      item.image = `/api/media/news/${item.id}/image`;
+      // If image_url is set, the stored value is a short string (URL), return it directly
+      if (item.image_url && (item.image_url.startsWith('http') || item.image_url.startsWith('blob:'))) {
+        item.image = item.image_url;
+      } else {
+        item.image = `/api/media/news/${item.id}/image`;
+      }
     } else if (item.hasOwnProperty('has_image')) {
       item.image = null;
     }
     
     if (item.has_video) {
-      item.image = `/api/media/news/${item.id}/video`;
-      item.video = item.image;
+      if (item.video_url && (item.video_url.startsWith('http') || item.video_url.startsWith('blob:'))) {
+        item.video = item.video_url;
+        if (!item.image) item.image = item.video_url;
+      } else {
+        item.video = `/api/media/news/${item.id}/video`;
+        item.image = item.video;
+      }
     } else if (item.hasOwnProperty('has_video')) {
       item.video = null;
     }
 
     delete item.has_image;
     delete item.has_video;
+    delete item.image_prefix;
+    delete item.video_prefix;
+    delete item.full_image_url;
+    delete item.full_video_url;
+    delete item.image_url;
+    delete item.video_url;
   }
   return item;
 }
@@ -56,7 +72,7 @@ exports.getAllNews = async (req, res) => {
     }
   }
 
-  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video FROM news WHERE 1=1";
+  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM news WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -165,7 +181,7 @@ exports.getAllNews = async (req, res) => {
 
 // GET BY ID
 exports.getNewsById = (req, res) => {
-  db.query("SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video FROM news WHERE id=?", [req.params.id], async (err, result) => {
+  db.query("SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM news WHERE id=?", [req.params.id], async (err, result) => {
     if (err) return res.json(err);
     if (Array.isArray(result)) result.forEach(formatItem);
     if (result.length === 0) return res.json(result);
@@ -203,15 +219,27 @@ exports.createNews = (req, res) => {
 exports.updateNews = (req, res) => {
   const { title, category, description, image, video, news_date } = req.body;
 
-  db.query(
-    "UPDATE news SET title=?, category=?, description=?, image=?, video=?, news_date=? WHERE id=?",
-    [title, category || 'News', description, base64ToBuffer(image), base64ToBuffer(video), news_date, req.params.id],
-    (err, result) => {
-      if (err) return res.json(err);
-      if (Array.isArray(result)) result.forEach(formatItem);
+  let sql = "UPDATE news SET title=?, category=?, description=?, news_date=?";
+  let params = [title, category || 'News', description, news_date];
+
+  if (image !== undefined && !(typeof image === 'string' && image.startsWith('/api/'))) {
+    sql += ", image=?";
+    params.push(base64ToBuffer(image));
+  }
+  
+  if (video !== undefined && !(typeof video === 'string' && video.startsWith('/api/'))) {
+    sql += ", video=?";
+    params.push(base64ToBuffer(video));
+  }
+
+  sql += " WHERE id=?";
+  params.push(req.params.id);
+
+  db.query(sql, params, (err, result) => {
+    if (err) return res.json(err);
+    if (Array.isArray(result)) result.forEach(formatItem);
     res.json({ message: "Updated" });
-    }
-  );
+  });
 };
 
 // DELETE NEWS
@@ -299,7 +327,7 @@ exports.getCategoriesWithLatestNews = (req, res) => {
   let { page, limit } = req.query;
 
   const baseSql = `
-    SELECT n1.id, n1.title, n1.category, n1.description, n1.news_date, n1.created_at, LENGTH(n1.image) > 0 as has_image, LENGTH(n1.video) > 0 as has_video
+    SELECT n1.id, n1.title, n1.category, n1.description, n1.news_date, n1.created_at, LENGTH(n1.image) > 0 as has_image, LENGTH(n1.video) > 0 as has_video, CASE WHEN LENGTH(n1.image) < 300 THEN CONVERT(n1.image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(n1.video) < 300 THEN CONVERT(n1.video, CHAR) ELSE NULL END as video_url
     FROM news n1
     LEFT JOIN news n2 
       ON n1.category = n2.category 
@@ -411,7 +439,7 @@ exports.getNewsByCategory = async (req, res) => {
     }
   }
 
-  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video FROM news WHERE 1=1";
+  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM news WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -502,7 +530,7 @@ exports.getNewsByCategory = async (req, res) => {
 exports.getTopNewsByCategory = (req, res) => {
   const { category } = req.query;
 
-  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video FROM news";
+  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM news";
   const params = [];
 
   if (category) {

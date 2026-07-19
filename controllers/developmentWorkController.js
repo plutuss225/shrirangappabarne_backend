@@ -5,20 +5,31 @@ const { base64ToBuffer, bufferToBase64 } = require("../utils/bufferUtils");
 function formatItem(item) {
   if (item && item.id) {
     if (item.has_image) {
-      item.image = `/api/media/development_work/${item.id}/image`;
+      if (item.image_url && (item.image_url.startsWith('http') || item.image_url.startsWith('blob:'))) {
+        item.image = item.image_url;
+      } else {
+        item.image = `/api/media/development_work/${item.id}/image`;
+      }
     } else if (item.hasOwnProperty('has_image')) {
       item.image = null;
     }
     
     if (item.has_video) {
-      item.image = `/api/media/development_work/${item.id}/video`;
-      item.video = item.image;
+      if (item.video_url && (item.video_url.startsWith('http') || item.video_url.startsWith('blob:'))) {
+        item.video = item.video_url;
+        if (!item.image || item.image.startsWith('/api/')) item.image = item.video_url;
+      } else {
+        item.video = `/api/media/development_work/${item.id}/video`;
+        item.image = item.video;
+      }
     } else if (item.hasOwnProperty('has_video')) {
       item.video = null;
     }
 
     delete item.has_image;
     delete item.has_video;
+    delete item.image_url;
+    delete item.video_url;
   }
   return item;
 }
@@ -48,7 +59,7 @@ async function translateDevelopmentWorkItem(item, targetLang) {
 exports.getAllDevelopmentWork = (req, res) => {
   const { page, limit, search, category, startDate, endDate } = req.query;
 
-  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video FROM development_work WHERE 1=1";
+  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM development_work WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -156,7 +167,7 @@ exports.getAllDevelopmentWork = (req, res) => {
 
 // GET BY ID
 exports.getDevelopmentWorkById = (req, res) => {
-  db.query("SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video FROM development_work WHERE id=?", [req.params.id], async (err, result) => {
+  db.query("SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM development_work WHERE id=?", [req.params.id], async (err, result) => {
     if (err) return res.json(err);
     if (Array.isArray(result)) result.forEach(formatItem);
     if (result.length === 0) return res.json(result);
@@ -194,15 +205,27 @@ exports.createDevelopmentWork = (req, res) => {
 exports.updateDevelopmentWork = (req, res) => {
   const { title, category, description, image, video, news_date } = req.body;
 
-  db.query(
-    "UPDATE development_work SET title=?, category=?, description=?, image=?, video=?, news_date=? WHERE id=?",
-    [title, category || 'DevelopmentWork', description, base64ToBuffer(image), base64ToBuffer(video), news_date, req.params.id],
-    (err, result) => {
-      if (err) return res.json(err);
-      if (Array.isArray(result)) result.forEach(formatItem);
+  let sql = "UPDATE development_work SET title=?, category=?, description=?, news_date=?";
+  let params = [title, category || 'DevelopmentWork', description, news_date];
+
+  if (image !== undefined && !(typeof image === 'string' && image.startsWith('/api/'))) {
+    sql += ", image=?";
+    params.push(base64ToBuffer(image));
+  }
+  
+  if (video !== undefined && !(typeof video === 'string' && video.startsWith('/api/'))) {
+    sql += ", video=?";
+    params.push(base64ToBuffer(video));
+  }
+
+  sql += " WHERE id=?";
+  params.push(req.params.id);
+
+  db.query(sql, params, (err, result) => {
+    if (err) return res.json(err);
+    if (Array.isArray(result)) result.forEach(formatItem);
     res.json({ message: "Updated" });
-    }
-  );
+  });
 };
 
 exports.deleteDevelopmentWork = (req, res) => {
@@ -253,7 +276,7 @@ exports.getCategories = (req, res) => {
 exports.getDevelopmentWorkByCategory = (req, res) => {
   const { category, search, page, limit } = req.query;
 
-  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video FROM development_work WHERE 1=1";
+  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM development_work WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -343,7 +366,7 @@ exports.getDevelopmentWorkByCategory = (req, res) => {
 exports.getTopDevelopmentWorkByCategory = (req, res) => {
   const { category } = req.query;
 
-  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video FROM development_work";
+  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM development_work";
   const params = [];
 
   if (category) {

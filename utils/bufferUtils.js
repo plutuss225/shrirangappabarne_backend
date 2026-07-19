@@ -1,5 +1,7 @@
 function base64ToBuffer(base64String) {
   if (!base64String || typeof base64String !== 'string') return base64String;
+  // Pass through http/https URLs as-is (Cloudinary etc.)
+  if (base64String.startsWith('http://') || base64String.startsWith('https://')) return base64String;
   const headerEnd = base64String.indexOf(';base64,');
   if (headerEnd === -1) return base64String; 
   const base64Data = base64String.substring(headerEnd + 8);

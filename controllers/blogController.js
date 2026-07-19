@@ -5,11 +5,16 @@ const { base64ToBuffer, bufferToBase64 } = require("../utils/bufferUtils");
 function formatItem(item) {
   if (item && item.id) {
     if (item.has_image) {
-      item.image = `/api/media/blogs/${item.id}/image`;
+      if (item.image_url && (item.image_url.startsWith('http') || item.image_url.startsWith('blob:'))) {
+        item.image = item.image_url;
+      } else {
+        item.image = `/api/media/blogs/${item.id}/image`;
+      }
     } else if (item.hasOwnProperty('has_image')) {
       item.image = null;
     }
     delete item.has_image;
+    delete item.image_url;
   }
   return item;
 }
@@ -132,7 +137,7 @@ exports.getAllBlogs = (req, res) => {
     }
   }
 
-  let query = "SELECT id, title, slug, author, meta_title, meta_description, published_at, created_at, status, content, blog_points, LENGTH(image) > 0 as has_image FROM blogs";
+  let query = "SELECT id, title, slug, author, meta_title, meta_description, published_at, created_at, status, content, blog_points, LENGTH(image) > 0 as has_image, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url FROM blogs";
   if (conditions.length > 0) {
     query += " WHERE " + conditions.join(" AND ");
   }
@@ -167,12 +172,12 @@ exports.getAllBlogs = (req, res) => {
 // GET BLOG BY ID OR SLUG
 exports.getBlogByIdOrSlug = (req, res) => {
   const { idOrSlug } = req.params;
-  let query = "SELECT id, title, slug, author, meta_title, meta_description, published_at, created_at, status, content, blog_points, LENGTH(image) > 0 as has_image FROM blogs WHERE slug = ?";
+  let query = "SELECT id, title, slug, author, meta_title, meta_description, published_at, created_at, status, content, blog_points, LENGTH(image) > 0 as has_image, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url FROM blogs WHERE slug = ?";
   let params = [idOrSlug];
 
   // If idOrSlug is an integer, check both id and slug
   if (!isNaN(idOrSlug)) {
-    query = "SELECT id, title, slug, author, meta_title, meta_description, published_at, created_at, status, content, blog_points, LENGTH(image) > 0 as has_image FROM blogs WHERE id = ? OR slug = ?";
+    query = "SELECT id, title, slug, author, meta_title, meta_description, published_at, created_at, status, content, blog_points, LENGTH(image) > 0 as has_image, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url FROM blogs WHERE id = ? OR slug = ?";
     params = [parseInt(idOrSlug), idOrSlug];
   }
 
@@ -285,21 +290,30 @@ exports.updateBlog = (req, res) => {
       finalPublishedAt = null;
     }
 
+    let sql = "UPDATE blogs SET title = ?, slug = ?, content = ?, meta_title = ?, meta_description = ?, blog_points = ?, author = ?, status = ?, published_at = ?";
+    let params = [
+      title,
+      finalSlug,
+      content,
+      meta_title || null,
+      meta_description || null,
+      finalBlogPoints,
+      author || "Admin",
+      status || "draft",
+      finalPublishedAt
+    ];
+
+    if (image !== undefined && !(typeof image === 'string' && image.startsWith('/api/'))) {
+      sql += ", image = ?";
+      params.push(base64ToBuffer(image));
+    }
+
+    sql += " WHERE id = ?";
+    params.push(id);
+
     db.query(
-      "UPDATE blogs SET title = ?, slug = ?, image = ?, content = ?, meta_title = ?, meta_description = ?, blog_points = ?, author = ?, status = ?, published_at = ? WHERE id = ?",
-      [
-        title,
-        finalSlug,
-        image ? base64ToBuffer(image) : null,
-        content,
-        meta_title || null,
-        meta_description || null,
-        finalBlogPoints,
-        author || "Admin",
-        status || "draft",
-        finalPublishedAt,
-        id
-      ],
+      sql,
+      params,
       (err, result) => {
         if (err) {
           if (err.code === "ER_DUP_ENTRY") {
@@ -357,7 +371,7 @@ exports.getBlogAuthors = (req, res) => {
 // Usage: GET /blogs/top
 exports.getTopBlogs = (req, res) => {
   db.query(
-    "SELECT id, title, slug, LENGTH(image) > 0 as has_image, author, meta_description, published_at, created_at FROM blogs WHERE status = 'published' ORDER BY id DESC LIMIT 4",
+    "SELECT id, title, slug, LENGTH(image) > 0 as has_image, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, author, meta_description, published_at, created_at FROM blogs WHERE status = 'published' ORDER BY id DESC LIMIT 4",
     async (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
 
@@ -392,7 +406,7 @@ exports.getPublicBlogs = (req, res) => {
   }
 
   const query =
-    "SELECT id, title, slug, LENGTH(image) > 0 as has_image, author, meta_description, published_at, created_at FROM blogs WHERE " +
+    "SELECT id, title, slug, LENGTH(image) > 0 as has_image, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, author, meta_description, published_at, created_at FROM blogs WHERE " +
     conditions.join(" AND ") +
     " ORDER BY id DESC LIMIT 20";
 
