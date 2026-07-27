@@ -1,3 +1,4 @@
+const axios = require('axios');
 const translationCache = new Map();
 
 async function translateText(text, targetLang) {
@@ -26,24 +27,18 @@ async function translateText(text, targetLang) {
   const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${source}&tl=${target}&dt=t&q=${encodeURIComponent(text)}`;
   
   try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      if (response.status === 429) {
-        console.warn("Translation rate limit hit (429). Returning original text.");
-      } else {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-    } else {
-      const data = await response.json();
-      if (data && data[0]) {
-        // data[0] contains an array of translated sentences
-        const translated = data[0].map(item => item[0]).join('');
-        translationCache.set(cacheKey, translated);
-        return translated;
-      }
+    const response = await axios.get(url, { timeout: 3000 });
+    if (response.data && response.data[0]) {
+      const translated = response.data[0].map(item => item[0]).join('');
+      translationCache.set(cacheKey, translated);
+      return translated;
     }
   } catch (error) {
-    console.error(`Translation failed for text "${text.substring(0, 20)}...":`, error.message);
+    if (error.response && error.response.status === 429) {
+      console.warn("Translation rate limit hit (429). Returning original text.");
+    } else {
+      console.error(`Translation failed for text "${text.substring(0, 20)}...":`, error.message);
+    }
   }
   
   return text; // Fallback to original text on failure
