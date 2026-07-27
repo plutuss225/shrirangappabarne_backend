@@ -9,12 +9,16 @@ const {
   getCategories,
   getCategoriesWithLatestNews,
   getNewsByCategory,
-  getTopNewsByCategory
+  getTopNewsByCategory,
+  getLatestNews
 } = require("../controllers/newsController");
 const authMiddleware = require("../middleware/authMiddleware");
 
 // GET ALL NEWS
 router.get("/", getAllNews);
+
+// GET LATEST 3 NEWS
+router.get("/latest", getLatestNews);
 
 // GET DISTINCT CATEGORIES (max 4)
 router.get("/categories", getCategories);

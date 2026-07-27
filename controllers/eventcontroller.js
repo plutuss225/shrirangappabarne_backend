@@ -13,8 +13,23 @@ function formatItem(item) {
     } else if (item.hasOwnProperty('has_main_image')) {
       item.main_image = null;
     }
+    
+    if (item.has_video) {
+      if (item.video_url && (item.video_url.startsWith('http') || item.video_url.startsWith('blob:'))) {
+        item.video = item.video_url;
+        if (!item.main_image || item.main_image.startsWith('/api/')) item.main_image = item.video_url;
+      } else {
+        item.video = `/api/media/event/${item.id}/video`;
+        item.main_image = item.video;
+      }
+    } else if (item.hasOwnProperty('has_video')) {
+      item.video = null;
+    }
+
     delete item.has_main_image;
     delete item.main_image_url;
+    delete item.has_video;
+    delete item.video_url;
   }
   return item;
 }
@@ -40,7 +55,7 @@ async function translateEventItem(item, targetLang) {
 
 // GET ALL EVENTS
 exports.getAllEvents = (req, res) => {
-  db.query("SELECT id, title, description, created_at, images, LENGTH(main_image) > 0 as has_main_image, CASE WHEN LENGTH(main_image) < 300 THEN CONVERT(main_image, CHAR) ELSE NULL END as main_image_url FROM event ORDER BY id DESC", async (err, result) => {
+  db.query("SELECT id, title, description, created_at, images, LENGTH(main_image) > 0 as has_main_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(main_image) < 300 THEN CONVERT(main_image, CHAR) ELSE NULL END as main_image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM event ORDER BY id DESC", async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
     
     if (Array.isArray(result)) result.forEach(formatItem);
@@ -62,7 +77,7 @@ exports.getAllEvents = (req, res) => {
 
 // GET BY ID
 exports.getEventById = (req, res) => {
-  db.query("SELECT id, title, description, created_at, images, LENGTH(main_image) > 0 as has_main_image, CASE WHEN LENGTH(main_image) < 300 THEN CONVERT(main_image, CHAR) ELSE NULL END as main_image_url FROM event WHERE id = ?", [req.params.id], async (err, result) => {
+  db.query("SELECT id, title, description, created_at, images, LENGTH(main_image) > 0 as has_main_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(main_image) < 300 THEN CONVERT(main_image, CHAR) ELSE NULL END as main_image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM event WHERE id = ?", [req.params.id], async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
     if (Array.isArray(result)) result.forEach(formatItem);
     if (result.length === 0) return res.json(result);
@@ -83,13 +98,13 @@ exports.getEventById = (req, res) => {
 
 // INSERT EVENT
 exports.createEvent = (req, res) => {
-  const { title, description, main_image, images } = req.body;
+  const { title, description, main_image, video, images } = req.body;
   
   const imagesStr = Array.isArray(images) ? JSON.stringify(images) : JSON.stringify([]);
 
   db.query(
-    "INSERT INTO event (title, description, main_image, images) VALUES (?,?,?,?)",
-    [title, description, base64ToBuffer(main_image), imagesStr],
+    "INSERT INTO event (title, description, main_image, video, images) VALUES (?,?,?,?,?)",
+    [title, description, base64ToBuffer(main_image), base64ToBuffer(video), imagesStr],
     (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
       if (Array.isArray(result)) result.forEach(formatItem);
@@ -100,7 +115,7 @@ exports.createEvent = (req, res) => {
 
 // UPDATE EVENT
 exports.updateEvent = (req, res) => {
-  const { title, description, main_image, images } = req.body;
+  const { title, description, main_image, video, images } = req.body;
   
   const imagesStr = Array.isArray(images) ? JSON.stringify(images) : JSON.stringify([]);
 
@@ -110,6 +125,11 @@ exports.updateEvent = (req, res) => {
   if (main_image !== undefined && !(typeof main_image === 'string' && main_image.startsWith('/api/'))) {
     sql += ", main_image=?";
     params.push(base64ToBuffer(main_image));
+  }
+  
+  if (video !== undefined && !(typeof video === 'string' && video.startsWith('/api/'))) {
+    sql += ", video=?";
+    params.push(base64ToBuffer(video));
   }
 
   sql += " WHERE id=?";

@@ -38,16 +38,18 @@ function formatItem(item) {
 async function translateDevelopmentWorkItem(item, targetLang) {
   if (!targetLang) return item;
   try {
-    const [title, category, description] = await Promise.all([
+    const [title, category, description, place] = await Promise.all([
       translateText(item.title, targetLang),
       translateText(item.category, targetLang),
-      translateText(item.description, targetLang)
+      translateText(item.description, targetLang),
+      translateText(item.place, targetLang)
     ]);
     return {
       ...item,
       title,
       category,
-      description
+      description,
+      place
     };
   } catch (err) {
     console.error("Error in translateDevelopmentWorkItem:", err.message);
@@ -59,7 +61,7 @@ async function translateDevelopmentWorkItem(item, targetLang) {
 exports.getAllDevelopmentWork = (req, res) => {
   const { page, limit, search, category, startDate, endDate } = req.query;
 
-  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM development_work WHERE 1=1";
+  let sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM development_work WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -167,7 +169,7 @@ exports.getAllDevelopmentWork = (req, res) => {
 
 // GET BY ID
 exports.getDevelopmentWorkById = (req, res) => {
-  db.query("SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM development_work WHERE id=?", [req.params.id], async (err, result) => {
+  db.query("SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM development_work WHERE id=?", [req.params.id], async (err, result) => {
     if (err) return res.json(err);
     if (Array.isArray(result)) result.forEach(formatItem);
     if (result.length === 0) return res.json(result);
@@ -188,11 +190,11 @@ exports.getDevelopmentWorkById = (req, res) => {
 
 // INSERT NEWS
 exports.createDevelopmentWork = (req, res) => {
-  const { title, category, description, image, video, news_date } = req.body;
+  const { title, category, description, place, image, video, news_date } = req.body;
 
   db.query(
-    "INSERT INTO development_work (title, category, description, image, video, news_date) VALUES (?,?,?,?,?,?)",
-    [title, category || 'DevelopmentWork', description, base64ToBuffer(image), base64ToBuffer(video), news_date],
+    "INSERT INTO development_work (title, category, description, place, image, video, news_date) VALUES (?,?,?,?,?,?,?)",
+    [title, category || 'DevelopmentWork', description, place, base64ToBuffer(image), base64ToBuffer(video), news_date],
     (err, result) => {
       if (err) return res.json(err);
       if (Array.isArray(result)) result.forEach(formatItem);
@@ -203,10 +205,10 @@ exports.createDevelopmentWork = (req, res) => {
 
 // UPDATE NEWS
 exports.updateDevelopmentWork = (req, res) => {
-  const { title, category, description, image, video, news_date } = req.body;
+  const { title, category, description, place, image, video, news_date } = req.body;
 
-  let sql = "UPDATE development_work SET title=?, category=?, description=?, news_date=?";
-  let params = [title, category || 'DevelopmentWork', description, news_date];
+  let sql = "UPDATE development_work SET title=?, category=?, description=?, place=?, news_date=?";
+  let params = [title, category || 'DevelopmentWork', description, place, news_date];
 
   if (image !== undefined && !(typeof image === 'string' && image.startsWith('/api/'))) {
     sql += ", image=?";
@@ -276,7 +278,7 @@ exports.getCategories = (req, res) => {
 exports.getDevelopmentWorkByCategory = (req, res) => {
   const { category, search, page, limit } = req.query;
 
-  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM development_work WHERE 1=1";
+  let sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM development_work WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -366,7 +368,7 @@ exports.getDevelopmentWorkByCategory = (req, res) => {
 exports.getTopDevelopmentWorkByCategory = (req, res) => {
   const { category } = req.query;
 
-  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM development_work";
+  let sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM development_work";
   const params = [];
 
   if (category) {
@@ -396,4 +398,162 @@ exports.getTopDevelopmentWorkByCategory = (req, res) => {
   });
 };
 
+// GET 1 DEVELOPMENT WORK PER YEAR (with image/video)
+exports.getDevelopmentWorkByYear = (req, res) => {
+  let sql = `
+    SELECT dw.id, dw.title, dw.category, dw.description, dw.place, dw.news_date, dw.created_at, 
+           LENGTH(dw.image) > 0 as has_image, LENGTH(dw.video) > 0 as has_video, 
+           CASE WHEN LENGTH(dw.image) < 300 THEN CONVERT(dw.image, CHAR) ELSE NULL END as image_url, 
+           CASE WHEN LENGTH(dw.video) < 300 THEN CONVERT(dw.video, CHAR) ELSE NULL END as video_url,
+           YEAR(COALESCE(dw.news_date, dw.created_at)) as year
+    FROM development_work dw
+    INNER JOIN (
+        SELECT MAX(id) as max_id, YEAR(COALESCE(news_date, created_at)) as grp_year
+        FROM development_work
+        WHERE LENGTH(image) > 0 OR LENGTH(video) > 0
+        GROUP BY YEAR(COALESCE(news_date, created_at))
+    ) grouped ON dw.id = grouped.max_id
+    ORDER BY year DESC
+  `;
+
+  db.query(sql, [], async (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    if (Array.isArray(result)) result.forEach(formatItem);
+    const targetLang = getTargetLanguage(req);
+    if (targetLang) {
+      try {
+        const translated = await Promise.all(
+          result.map((item) => translateDevelopmentWorkItem(item, targetLang))
+        );
+        return res.json(translated);
+      } catch (transErr) {
+        console.error("Error translating development_work by year:", transErr.message);
+      }
+    }
+
+    res.json(result);
+  });
+};
+
+// GET PLACES (distinct places from development_work table)
+exports.getPlaces = (req, res) => {
+  db.query(
+    "SELECT DISTINCT place FROM development_work WHERE place IS NOT NULL AND TRIM(place) != '' ORDER BY place ASC",
+    async (err, result) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      if (Array.isArray(result)) result.forEach(formatItem);
+      const targetLang = getTargetLanguage(req);
+      const originalPlaces = result.map((r) => r.place);
+
+      if (targetLang) {
+        try {
+          const translated = await Promise.all(
+            originalPlaces.map((p) => translateText(p, targetLang))
+          );
+          const places = originalPlaces.map((p, i) => ({
+            key: p,
+            label: translated[i]
+          }));
+          return res.json({ places });
+        } catch (transErr) {
+          console.error("Error translating places:", transErr.message);
+        }
+      }
+
+      const places = originalPlaces.map(p => ({ key: p, label: p }));
+      res.json({ places });
+    }
+  );
+};
+
+// GET ALL DEVELOPMENT WORK BY PLACE (filtered, latest first)
+// Usage: GET /development_work/by-place?place=Pune&search=test&page=1&limit=10
+exports.getDevelopmentWorkByPlace = (req, res) => {
+  const { place, search, page, limit } = req.query;
+
+  let sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM development_work WHERE 1=1";
+  const params = [];
+
+  if (place) {
+    sql += " AND place = ?";
+    params.push(place);
+  }
+
+  if (search) {
+    sql += " AND (title LIKE ? OR description LIKE ?)";
+    params.push(`%${search}%`, `%${search}%`);
+  }
+
+  sql += " ORDER BY id DESC";
+
+  if (page && limit) {
+    let countSql = "SELECT COUNT(*) as total FROM development_work WHERE 1=1";
+    const countParams = [];
+    if (place) {
+      countSql += " AND place = ?";
+      countParams.push(place);
+    }
+    if (search) {
+      countSql += " AND (title LIKE ? OR description LIKE ?)";
+      countParams.push(`%${search}%`, `%${search}%`);
+    }
+
+    db.query(countSql, countParams, (countErr, countResult) => {
+      if (countErr) return res.status(500).json({ error: countErr.message });
+      const total = countResult[0].total;
+
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+      sql += " LIMIT ? OFFSET ?";
+      params.push(parseInt(limit), offset);
+
+      db.query(sql, params, async (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        if (Array.isArray(result)) result.forEach(formatItem);
+        let finalResult = result;
+        const targetLang = getTargetLanguage(req);
+        if (targetLang) {
+          try {
+            finalResult = await Promise.all(
+              result.map((item) => translateDevelopmentWorkItem(item, targetLang))
+            );
+          } catch (transErr) {
+            console.error("Error translating development_work by place:", transErr.message);
+          }
+        }
+
+        return res.json({
+          data: finalResult,
+          total,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(total / parseInt(limit))
+        });
+      });
+    });
+  } else {
+    // Backward compatible mode if no page/limit
+    sql += " LIMIT 20";
+    db.query(sql, params, async (err, result) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      if (Array.isArray(result)) result.forEach(formatItem);
+      const targetLang = getTargetLanguage(req);
+      if (targetLang) {
+        try {
+          const translated = await Promise.all(
+            result.map((item) => translateDevelopmentWorkItem(item, targetLang))
+          );
+          return res.json(translated);
+        } catch (transErr) {
+          console.error("Error translating development_work by place:", transErr.message);
+        }
+      }
+
+      res.json(result);
+    });
+  }
+};
 

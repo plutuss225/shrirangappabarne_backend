@@ -181,22 +181,48 @@ exports.getAllNews = async (req, res) => {
 
 // GET BY ID
 exports.getNewsById = (req, res) => {
-  db.query("SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM news WHERE id=?", [req.params.id], async (err, result) => {
+  const currentId = req.params.id;
+  db.query("SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM news WHERE id=?", [currentId], async (err, result) => {
     if (err) return res.json(err);
-    if (Array.isArray(result)) result.forEach(formatItem);
     if (result.length === 0) return res.json(result);
+    if (Array.isArray(result)) result.forEach(formatItem);
     
     const targetLang = getTargetLanguage(req);
+    let item = result[0];
+    
     if (targetLang) {
       try {
-        const translatedItem = await translateNewsItem(result[0], targetLang);
-        return res.json([translatedItem]);
+        item = await translateNewsItem(item, targetLang);
       } catch (transErr) {
         console.error("Error in single translation:", transErr.message);
       }
     }
     
-    res.json(result);
+    const pnSql = `
+      (SELECT id, title, 'prev' as type FROM news WHERE id < ? ORDER BY id DESC LIMIT 1)
+      UNION
+      (SELECT id, title, 'next' as type FROM news WHERE id > ? ORDER BY id ASC LIMIT 1)
+    `;
+    
+    db.query(pnSql, [currentId, currentId], async (pnErr, pnResult) => {
+      if (!pnErr && pnResult && pnResult.length > 0) {
+        let prev = null;
+        let next = null;
+        
+        for (let row of pnResult) {
+          let translatedRow = { id: row.id, title: row.title };
+          if (targetLang) {
+             translatedRow.title = await translateText(row.title, targetLang).catch(() => row.title);
+          }
+          if (row.type === 'prev') prev = translatedRow;
+          if (row.type === 'next') next = translatedRow;
+        }
+        item.prev = prev;
+        item.next = next;
+      }
+      
+      res.json([item]);
+    });
   });
 };
 
@@ -560,4 +586,26 @@ exports.getTopNewsByCategory = (req, res) => {
   });
 };
 
+// GET LATEST 3 NEWS
+exports.getLatestNews = (req, res) => {
+  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM news ORDER BY COALESCE(news_date, created_at) DESC, id DESC LIMIT 3";
 
+  db.query(sql, [], async (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    if (Array.isArray(result)) result.forEach(formatItem);
+    const targetLang = getTargetLanguage(req);
+    if (targetLang) {
+      try {
+        const translated = await Promise.all(
+          result.map((item) => translateNewsItem(item, targetLang))
+        );
+        return res.json(translated);
+      } catch (transErr) {
+        console.error("Error translating latest news:", transErr.message);
+      }
+    }
+
+    res.json(result);
+  });
+};

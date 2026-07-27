@@ -8,7 +8,10 @@ const {
   deleteDevelopmentWork,
   getCategories,
   getDevelopmentWorkByCategory,
-  getTopDevelopmentWorkByCategory
+  getTopDevelopmentWorkByCategory,
+  getDevelopmentWorkByYear,
+  getPlaces,
+  getDevelopmentWorkByPlace
 } = require("../controllers/developmentWorkController");
 const authMiddleware = require("../middleware/authMiddleware");
 
@@ -21,8 +24,17 @@ router.get("/categories", getCategories);
 // GET ALL NEWS BY CATEGORY (latest first, optional ?category=Sports)
 router.get("/by-category", getDevelopmentWorkByCategory);
 
+// GET DISTINCT PLACES
+router.get("/places", getPlaces);
+
+// GET ALL DEVELOPMENT WORK BY PLACE (latest first, optional ?place=Pune)
+router.get("/by-place", getDevelopmentWorkByPlace);
+
 // GET TOP 3 NEWS BY CATEGORY (max 3, optional ?category=Sports)
 router.get("/by-category/top", getTopDevelopmentWorkByCategory);
+
+// GET DEVELOPMENT WORK BY YEAR (1 per year)
+router.get("/by-year", getDevelopmentWorkByYear);
 
 // GET BY ID
 router.get("/:id", getDevelopmentWorkById);

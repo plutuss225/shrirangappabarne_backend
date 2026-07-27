@@ -8,12 +8,16 @@ const {
   updateImage,
   deleteImage,
   getImagesByCategory,
-  getCategories
+  getCategories,
+  getLatestImages
 } = require("../controllers/imageController");
 const authMiddleware = require("../middleware/authMiddleware");
 
 // GET ALL IMAGES (latest first)
 router.get("/", getAllImages);
+
+// GET LATEST 6 IMAGES
+router.get("/latest", getLatestImages);
 
 // GET HERO IMAGES ONLY (isHeroSelectionImage = 1, latest first)
 router.get("/hero", getHeroImages);

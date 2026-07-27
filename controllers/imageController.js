@@ -293,3 +293,27 @@ exports.getCategories = (req, res) => {
   );
 };
 
+// GET LATEST 6 IMAGES
+exports.getLatestImages = (req, res) => {
+  db.query(
+    "SELECT id, title, category, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images ORDER BY created_at DESC LIMIT 6",
+    async (err, result) => {
+      if (err) return res.status(500).json(err);
+      
+      if (Array.isArray(result)) result.forEach(formatItem);
+      const targetLang = getTargetLanguage(req);
+      if (targetLang) {
+        try {
+          const translatedResult = await Promise.all(
+            result.map((item) => translateImageItem(item, targetLang))
+          );
+          return res.json(translatedResult);
+        } catch (transErr) {
+          console.error("Error translating latest images:", transErr.message);
+        }
+      }
+      
+      res.json(result);
+    }
+  );
+};
