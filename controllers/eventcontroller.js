@@ -55,7 +55,7 @@ async function translateEventItem(item, targetLang) {
 
 // GET ALL EVENTS
 exports.getAllEvents = (req, res) => {
-  db.query("SELECT id, title, description, created_at, images, LENGTH(main_image) > 0 as has_main_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(main_image) < 300 THEN CONVERT(main_image, CHAR) ELSE NULL END as main_image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM event ORDER BY id DESC", async (err, result) => {
+  db.query("SELECT id, title, SUBSTRING(description, 1, 200) as description, created_at, LENGTH(main_image) > 0 as has_main_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(main_image) < 300 THEN CONVERT(main_image, CHAR) ELSE NULL END as main_image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM event ORDER BY id DESC", async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
     
     if (Array.isArray(result)) result.forEach(formatItem);
@@ -77,7 +77,7 @@ exports.getAllEvents = (req, res) => {
 
 // GET BY ID
 exports.getEventById = (req, res) => {
-  db.query("SELECT id, title, description, created_at, images, LENGTH(main_image) > 0 as has_main_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(main_image) < 300 THEN CONVERT(main_image, CHAR) ELSE NULL END as main_image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM event WHERE id = ?", [req.params.id], async (err, result) => {
+  db.query("SELECT id, title, SUBSTRING(description, 1, 200) as description, created_at, LENGTH(main_image) > 0 as has_main_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(main_image) < 300 THEN CONVERT(main_image, CHAR) ELSE NULL END as main_image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM event WHERE id = ?", [req.params.id], async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
     if (Array.isArray(result)) result.forEach(formatItem);
     if (result.length === 0) return res.json(result);

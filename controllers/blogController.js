@@ -137,7 +137,7 @@ exports.getAllBlogs = (req, res) => {
     }
   }
 
-  let query = "SELECT id, title, slug, author, meta_title, meta_description, published_at, created_at, status, content, blog_points, LENGTH(image) > 0 as has_image, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url FROM blogs";
+  let query = "SELECT id, title, slug, author, meta_title, meta_description, published_at, created_at, status, blog_points, LENGTH(image) > 0 as has_image, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url FROM blogs";
   if (conditions.length > 0) {
     query += " WHERE " + conditions.join(" AND ");
   }
@@ -172,7 +172,7 @@ exports.getAllBlogs = (req, res) => {
 // GET BLOG BY ID OR SLUG
 exports.getBlogByIdOrSlug = (req, res) => {
   const { idOrSlug } = req.params;
-  let query = "SELECT id, title, slug, author, meta_title, meta_description, published_at, created_at, status, content, blog_points, LENGTH(image) > 0 as has_image, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url FROM blogs WHERE slug = ?";
+  let query = "SELECT id, title, slug, author, meta_title, meta_description, published_at, created_at, status, blog_points, LENGTH(image) > 0 as has_image, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url FROM blogs WHERE slug = ?";
   let params = [idOrSlug];
 
   // If idOrSlug is an integer, check both id and slug

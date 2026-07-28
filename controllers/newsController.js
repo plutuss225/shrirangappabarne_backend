@@ -72,7 +72,7 @@ exports.getAllNews = async (req, res) => {
     }
   }
 
-  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM news WHERE 1=1";
+  let sql = "SELECT id, title, category, SUBSTRING(description, 1, 200) as description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM news WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -465,7 +465,7 @@ exports.getNewsByCategory = async (req, res) => {
     }
   }
 
-  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM news WHERE 1=1";
+  let sql = "SELECT id, title, category, SUBSTRING(description, 1, 200) as description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM news WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -556,7 +556,7 @@ exports.getNewsByCategory = async (req, res) => {
 exports.getTopNewsByCategory = (req, res) => {
   const { category } = req.query;
 
-  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM news";
+  let sql = "SELECT id, title, category, SUBSTRING(description, 1, 200) as description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM news";
   const params = [];
 
   if (category) {
@@ -588,7 +588,7 @@ exports.getTopNewsByCategory = (req, res) => {
 
 // GET LATEST 3 NEWS
 exports.getLatestNews = (req, res) => {
-  let sql = "SELECT id, title, category, description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM news ORDER BY COALESCE(news_date, created_at) DESC, id DESC LIMIT 3";
+  let sql = "SELECT id, title, category, SUBSTRING(description, 1, 200) as description, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM news ORDER BY COALESCE(news_date, created_at) DESC, id DESC LIMIT 3";
 
   db.query(sql, [], async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
