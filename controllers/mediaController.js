@@ -46,8 +46,27 @@ exports.getMedia = (req, res) => {
     // For videos, add Accept-Ranges header to support seeking
     if (type.startsWith('video/')) {
       res.setHeader('Accept-Ranges', 'bytes');
+      
+      const range = req.headers.range;
+      if (range) {
+        const parts = range.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : buffer.length - 1;
+        
+        if (start >= buffer.length || end >= buffer.length) {
+          res.status(416).setHeader('Content-Range', `bytes */${buffer.length}`);
+          return res.end();
+        }
+        
+        const chunksize = (end - start) + 1;
+        res.status(206);
+        res.setHeader('Content-Range', `bytes ${start}-${end}/${buffer.length}`);
+        res.setHeader('Content-Length', chunksize);
+        return res.end(buffer.subarray(start, end + 1));
+      }
     }
     
+    res.setHeader('Content-Length', buffer.length);
     res.end(buffer);
   });
 };
