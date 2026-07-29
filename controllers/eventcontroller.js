@@ -1,6 +1,7 @@
 const db = require("../db");
 const { translateText, getTargetLanguage } = require("../utils/translator");
 const { base64ToBuffer, bufferToBase64 } = require("../utils/bufferUtils");
+const { uploadMedia } = require("../utils/cloudinary");
 
 function formatItem(item) {
   if (item && item.id) {
@@ -97,14 +98,19 @@ exports.getEventById = (req, res) => {
 };
 
 // INSERT EVENT
-exports.createEvent = (req, res) => {
+exports.createEvent = async (req, res) => {
   const { title, description, main_image, video, images } = req.body;
   
   const imagesStr = Array.isArray(images) ? JSON.stringify(images) : JSON.stringify([]);
 
+  let videoUrl = video;
+  if (video && !video.startsWith('/api/') && !video.startsWith('http')) {
+    videoUrl = await uploadMedia(video, 'video');
+  }
+
   db.query(
     "INSERT INTO event (title, description, main_image, video, images) VALUES (?,?,?,?,?)",
-    [title, description, base64ToBuffer(main_image), base64ToBuffer(video), imagesStr],
+    [title, description, base64ToBuffer(main_image), videoUrl ? Buffer.from(videoUrl, 'utf8') : null, imagesStr],
     (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
       if (Array.isArray(result)) result.forEach(formatItem);
@@ -114,7 +120,7 @@ exports.createEvent = (req, res) => {
 };
 
 // UPDATE EVENT
-exports.updateEvent = (req, res) => {
+exports.updateEvent = async (req, res) => {
   const { title, description, main_image, video, images } = req.body;
   
   const imagesStr = Array.isArray(images) ? JSON.stringify(images) : JSON.stringify([]);
@@ -127,9 +133,10 @@ exports.updateEvent = (req, res) => {
     params.push(base64ToBuffer(main_image));
   }
   
-  if (video !== undefined && !(typeof video === 'string' && video.startsWith('/api/'))) {
+  if (video !== undefined && !(typeof video === 'string' && (video.startsWith('/api/') || video.startsWith('http')))) {
+    let videoUrl = await uploadMedia(video, 'video');
     sql += ", video=?";
-    params.push(base64ToBuffer(video));
+    params.push(videoUrl ? Buffer.from(videoUrl, 'utf8') : null);
   }
 
   sql += " WHERE id=?";

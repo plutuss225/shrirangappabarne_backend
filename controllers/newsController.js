@@ -1,6 +1,7 @@
 const db = require("../db");
 const { translateText, getTargetLanguage } = require("../utils/translator");
 const { base64ToBuffer, bufferToBase64 } = require("../utils/bufferUtils");
+const { uploadMedia } = require("../utils/cloudinary");
 
 function formatItem(item) {
   if (item && item.id) {
@@ -227,12 +228,17 @@ exports.getNewsById = (req, res) => {
 };
 
 // INSERT NEWS
-exports.createNews = (req, res) => {
+exports.createNews = async (req, res) => {
   const { title, category, description, image, video, news_date } = req.body;
+
+  let videoUrl = video;
+  if (video && !video.startsWith('/api/') && !video.startsWith('http')) {
+    videoUrl = await uploadMedia(video, 'video');
+  }
 
   db.query(
     "INSERT INTO news (title, category, description, image, video, news_date) VALUES (?,?,?,?,?,?)",
-    [title, category || 'News', description, base64ToBuffer(image), base64ToBuffer(video), news_date],
+    [title, category || 'News', description, base64ToBuffer(image), videoUrl ? Buffer.from(videoUrl, 'utf8') : null, news_date],
     (err, result) => {
       if (err) return res.json(err);
       if (Array.isArray(result)) result.forEach(formatItem);
@@ -242,7 +248,7 @@ exports.createNews = (req, res) => {
 };
 
 // UPDATE NEWS
-exports.updateNews = (req, res) => {
+exports.updateNews = async (req, res) => {
   const { title, category, description, image, video, news_date } = req.body;
 
   let sql = "UPDATE news SET title=?, category=?, description=?, news_date=?";
@@ -253,9 +259,10 @@ exports.updateNews = (req, res) => {
     params.push(base64ToBuffer(image));
   }
   
-  if (video !== undefined && !(typeof video === 'string' && video.startsWith('/api/'))) {
+  if (video !== undefined && !(typeof video === 'string' && (video.startsWith('/api/') || video.startsWith('http')))) {
+    let videoUrl = await uploadMedia(video, 'video');
     sql += ", video=?";
-    params.push(base64ToBuffer(video));
+    params.push(videoUrl ? Buffer.from(videoUrl, 'utf8') : null);
   }
 
   sql += " WHERE id=?";

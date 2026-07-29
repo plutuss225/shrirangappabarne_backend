@@ -1,6 +1,7 @@
 const db = require("../db");
 const { translateText, getTargetLanguage } = require("../utils/translator");
 const { base64ToBuffer, bufferToBase64 } = require("../utils/bufferUtils");
+const { uploadMedia } = require("../utils/cloudinary");
 
 function formatItem(item) {
   if (item && item.id) {
@@ -189,12 +190,17 @@ exports.getDevelopmentWorkById = (req, res) => {
 };
 
 // INSERT NEWS
-exports.createDevelopmentWork = (req, res) => {
+exports.createDevelopmentWork = async (req, res) => {
   const { title, category, description, place, image, video, news_date } = req.body;
+
+  let videoUrl = video;
+  if (video && !video.startsWith('/api/') && !video.startsWith('http')) {
+    videoUrl = await uploadMedia(video, 'video');
+  }
 
   db.query(
     "INSERT INTO development_work (title, category, description, place, image, video, news_date) VALUES (?,?,?,?,?,?,?)",
-    [title, category || 'DevelopmentWork', description, place, base64ToBuffer(image), base64ToBuffer(video), news_date],
+    [title, category || 'DevelopmentWork', description, place, base64ToBuffer(image), videoUrl ? Buffer.from(videoUrl, 'utf8') : null, news_date],
     (err, result) => {
       if (err) return res.json(err);
       if (Array.isArray(result)) result.forEach(formatItem);
@@ -204,7 +210,7 @@ exports.createDevelopmentWork = (req, res) => {
 };
 
 // UPDATE NEWS
-exports.updateDevelopmentWork = (req, res) => {
+exports.updateDevelopmentWork = async (req, res) => {
   const { title, category, description, place, image, video, news_date } = req.body;
 
   let sql = "UPDATE development_work SET title=?, category=?, description=?, place=?, news_date=?";
@@ -215,9 +221,10 @@ exports.updateDevelopmentWork = (req, res) => {
     params.push(base64ToBuffer(image));
   }
   
-  if (video !== undefined && !(typeof video === 'string' && video.startsWith('/api/'))) {
+  if (video !== undefined && !(typeof video === 'string' && (video.startsWith('/api/') || video.startsWith('http')))) {
+    let videoUrl = await uploadMedia(video, 'video');
     sql += ", video=?";
-    params.push(base64ToBuffer(video));
+    params.push(videoUrl ? Buffer.from(videoUrl, 'utf8') : null);
   }
 
   sql += " WHERE id=?";

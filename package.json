@@ -23,6 +23,7 @@
     "iconv-lite": "^0.7.2",
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.11.0",
+    "multer": "^2.2.0",
     "mysql2": "^3.22.5",
     "sharp": "^0.35.3"
   },

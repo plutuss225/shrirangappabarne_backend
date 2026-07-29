@@ -20,7 +20,20 @@ function getMimeType(buffer) {
       mimeType = 'video/webm';
     } else {
       const header = buffer.subarray(0, 32).toString('ascii');
-      if (header.includes('ftyp')) {
+      const ftypIndex = header.indexOf('ftyp');
+      
+      if (ftypIndex !== -1 && ftypIndex + 8 <= header.length) {
+        const brand = header.substring(ftypIndex + 4, ftypIndex + 8);
+        if (['heic', 'heix', 'mif1', 'msf1'].includes(brand)) {
+          mimeType = 'image/heic';
+        } else if (['avif', 'avis'].includes(brand)) {
+          mimeType = 'image/avif';
+        } else if (brand === 'qt  ') {
+          mimeType = 'video/quicktime';
+        } else {
+          mimeType = 'video/mp4';
+        }
+      } else if (header.includes('ftyp')) {
         mimeType = 'video/mp4';
       } else if (buffer[0] === 0x25 && buffer[1] === 0x50 && buffer[2] === 0x44 && buffer[3] === 0x46) {
         mimeType = 'application/pdf';
