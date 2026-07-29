@@ -6,8 +6,9 @@ const { uploadMedia } = require("../utils/cloudinary");
 function formatItem(item) {
   if (item && item.id) {
     if (item.has_image) {
-      if (item.image_url && (item.image_url.startsWith('http') || item.image_url.startsWith('blob:'))) {
-        item.image = item.image_url;
+      const url = item.image_url ? item.image_url.toString() : "";
+      if (url && (url.startsWith('http') || url.startsWith('blob:'))) {
+        item.image = url;
       } else {
         item.image = `/api/media/development_work/${item.id}/image`;
       }
@@ -16,9 +17,10 @@ function formatItem(item) {
     }
     
     if (item.has_video) {
-      if (item.video_url && (item.video_url.startsWith('http') || item.video_url.startsWith('blob:'))) {
-        item.video = item.video_url;
-        if (!item.image || item.image.startsWith('/api/')) item.image = item.video_url;
+      const url = item.video_url ? item.video_url.toString() : "";
+      if (url && (url.startsWith('http') || url.startsWith('blob:'))) {
+        item.video = url;
+        if (!item.image || item.image.startsWith('/api/')) item.image = url;
       } else {
         item.video = `/api/media/development_work/${item.id}/video`;
         item.image = item.video;

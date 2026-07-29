@@ -6,8 +6,9 @@ const { uploadMedia } = require("../utils/cloudinary");
 function formatItem(item) {
   if (item && item.id) {
     if (item.has_main_image) {
-      if (item.main_image_url && (item.main_image_url.startsWith('http') || item.main_image_url.startsWith('blob:'))) {
-        item.main_image = item.main_image_url;
+      const url = item.main_image_url ? item.main_image_url.toString() : "";
+      if (url && (url.startsWith('http') || url.startsWith('blob:'))) {
+        item.main_image = url;
       } else {
         item.main_image = `/api/media/event/${item.id}/main_image`;
       }
@@ -16,9 +17,10 @@ function formatItem(item) {
     }
     
     if (item.has_video) {
-      if (item.video_url && (item.video_url.startsWith('http') || item.video_url.startsWith('blob:'))) {
-        item.video = item.video_url;
-        if (!item.main_image || item.main_image.startsWith('/api/')) item.main_image = item.video_url;
+      const url = item.video_url ? item.video_url.toString() : "";
+      if (url && (url.startsWith('http') || url.startsWith('blob:'))) {
+        item.video = url;
+        if (!item.main_image || item.main_image.startsWith('/api/')) item.main_image = url;
       } else {
         item.video = `/api/media/event/${item.id}/video`;
         item.main_image = item.video;
@@ -59,7 +61,13 @@ exports.getAllEvents = (req, res) => {
   db.query("SELECT id, title, SUBSTRING(description, 1, 200) as description, created_at, LENGTH(main_image) > 0 as has_main_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(main_image) < 300 THEN CONVERT(main_image, CHAR) ELSE NULL END as main_image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM event ORDER BY id DESC", async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
     
-    if (Array.isArray(result)) result.forEach(formatItem);
+    try {
+      if (Array.isArray(result)) result.forEach(formatItem);
+    } catch (formatErr) {
+      console.error("Format error:", formatErr);
+      return res.status(500).json({ error: "Data formatting error" });
+    }
+
     const targetLang = getTargetLanguage(req);
     if (targetLang) {
       try {
@@ -80,7 +88,14 @@ exports.getAllEvents = (req, res) => {
 exports.getEventById = (req, res) => {
   db.query("SELECT id, title, SUBSTRING(description, 1, 200) as description, created_at, LENGTH(main_image) > 0 as has_main_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(main_image) < 300 THEN CONVERT(main_image, CHAR) ELSE NULL END as main_image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM event WHERE id = ?", [req.params.id], async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
-    if (Array.isArray(result)) result.forEach(formatItem);
+    
+    try {
+      if (Array.isArray(result)) result.forEach(formatItem);
+    } catch (formatErr) {
+      console.error("Format error:", formatErr);
+      return res.status(500).json({ error: "Data formatting error" });
+    }
+    
     if (result.length === 0) return res.json(result);
     
     const targetLang = getTargetLanguage(req);
