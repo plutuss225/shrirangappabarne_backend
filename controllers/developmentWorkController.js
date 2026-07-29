@@ -62,7 +62,7 @@ async function translateDevelopmentWorkItem(item, targetLang) {
 
 // GET ALL NEWS
 exports.getAllDevelopmentWork = (req, res) => {
-  const { page, limit, search, category, startDate, endDate } = req.query;
+  const { page, limit, search, category, place, startDate, endDate } = req.query;
 
   let sql = "SELECT id, title, category, SUBSTRING(description, 1, 200) as description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM development_work WHERE 1=1";
   const params = [];
@@ -70,6 +70,11 @@ exports.getAllDevelopmentWork = (req, res) => {
   if (category) {
     sql += " AND category = ?";
     params.push(category);
+  }
+
+  if (place) {
+    sql += " AND place = ?";
+    params.push(place);
   }
 
   if (search) {
@@ -96,6 +101,11 @@ exports.getAllDevelopmentWork = (req, res) => {
     if (category) {
       countSql += " AND category = ?";
       countParams.push(category);
+    }
+
+    if (place) {
+      countSql += " AND place = ?";
+      countParams.push(place);
     }
 
     if (search) {
