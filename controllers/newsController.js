@@ -70,9 +70,13 @@ exports.getAllNews = async (req, res) => {
   let { page, limit, search, category, startDate, endDate } = req.query;
 
   let searchEn = search;
+  let searchMr = search;
   if (search) {
     try {
-      searchEn = await translateText(search, "en");
+      [searchEn, searchMr] = await Promise.all([
+        translateText(search, "en"),
+        translateText(search, "mr")
+      ]);
     } catch (e) {
       console.error("Error translating search term:", e.message);
     }
@@ -87,8 +91,8 @@ exports.getAllNews = async (req, res) => {
   }
 
   if (search) {
-    sql += " AND (title LIKE ? OR description LIKE ? OR category LIKE ? OR title LIKE ? OR description LIKE ? OR category LIKE ?)";
-    params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${searchEn}%`, `%${searchEn}%`, `%${searchEn}%`);
+    sql += " AND (title LIKE ? OR description LIKE ? OR category LIKE ? OR title LIKE ? OR description LIKE ? OR category LIKE ? OR title LIKE ? OR description LIKE ? OR category LIKE ?)";
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${searchEn}%`, `%${searchEn}%`, `%${searchEn}%`, `%${searchMr}%`, `%${searchMr}%`, `%${searchMr}%`);
   }
 
   if (startDate) {
@@ -113,8 +117,8 @@ exports.getAllNews = async (req, res) => {
     }
 
     if (search) {
-      countSql += " AND (title LIKE ? OR description LIKE ? OR category LIKE ? OR title LIKE ? OR description LIKE ? OR category LIKE ?)";
-      countParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${searchEn}%`, `%${searchEn}%`, `%${searchEn}%`);
+      countSql += " AND (title LIKE ? OR description LIKE ? OR category LIKE ? OR title LIKE ? OR description LIKE ? OR category LIKE ? OR title LIKE ? OR description LIKE ? OR category LIKE ?)";
+      countParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${searchEn}%`, `%${searchEn}%`, `%${searchEn}%`, `%${searchMr}%`, `%${searchMr}%`, `%${searchMr}%`);
     }
 
     if (startDate) {
@@ -470,9 +474,13 @@ exports.getNewsByCategory = async (req, res) => {
   let { category, search, page, limit } = req.query;
 
   let searchEn = search;
+  let searchMr = search;
   if (search) {
     try {
-      searchEn = await translateText(search, "en");
+      [searchEn, searchMr] = await Promise.all([
+        translateText(search, "en"),
+        translateText(search, "mr")
+      ]);
     } catch (e) {
       console.error("Error translating search term:", e.message);
     }
@@ -487,8 +495,8 @@ exports.getNewsByCategory = async (req, res) => {
   }
 
   if (search) {
-    sql += " AND (title LIKE ? OR description LIKE ? OR category LIKE ? OR title LIKE ? OR description LIKE ? OR category LIKE ?)";
-    params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${searchEn}%`, `%${searchEn}%`, `%${searchEn}%`);
+    sql += " AND (title LIKE ? OR description LIKE ? OR category LIKE ? OR title LIKE ? OR description LIKE ? OR category LIKE ? OR title LIKE ? OR description LIKE ? OR category LIKE ?)";
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${searchEn}%`, `%${searchEn}%`, `%${searchEn}%`, `%${searchMr}%`, `%${searchMr}%`, `%${searchMr}%`);
   }
 
   sql += " ORDER BY COALESCE(news_date, created_at) DESC, id DESC";
@@ -501,8 +509,8 @@ exports.getNewsByCategory = async (req, res) => {
       countParams.push(category);
     }
     if (search) {
-      countSql += " AND (title LIKE ? OR description LIKE ? OR category LIKE ? OR title LIKE ? OR description LIKE ? OR category LIKE ?)";
-      countParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${searchEn}%`, `%${searchEn}%`, `%${searchEn}%`);
+      countSql += " AND (title LIKE ? OR description LIKE ? OR category LIKE ? OR title LIKE ? OR description LIKE ? OR category LIKE ? OR title LIKE ? OR description LIKE ? OR category LIKE ?)";
+      countParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${searchEn}%`, `%${searchEn}%`, `%${searchEn}%`, `%${searchMr}%`, `%${searchMr}%`, `%${searchMr}%`);
     }
 
     db.query(countSql, countParams, (countErr, countResult) => {
