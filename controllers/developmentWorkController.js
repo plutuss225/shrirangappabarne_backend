@@ -49,6 +49,10 @@ async function translateDevelopmentWorkItem(item, targetLang) {
     ]);
     return {
       ...item,
+      original_title: item.title,
+      original_category: item.category,
+      original_description: item.description,
+      original_place: item.place,
       title,
       category,
       description,
