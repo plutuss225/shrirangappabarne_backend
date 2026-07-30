@@ -92,7 +92,7 @@ exports.getAllDevelopmentWork = (req, res) => {
     params.push(endDate);
   }
 
-  sql += " ORDER BY id DESC";
+  sql += " ORDER BY COALESCE(news_date, created_at) DESC";
 
   if (page && limit) {
     let countSql = "SELECT COUNT(*) as total FROM development_work WHERE 1=1";
