@@ -11,7 +11,8 @@ const {
   getTopDevelopmentWorkByCategory,
   getDevelopmentWorkByYear,
   getPlaces,
-  getDevelopmentWorkByPlace
+  getDevelopmentWorkByPlace,
+  getPROfficeWorks
 } = require("../controllers/developmentWorkController");
 const authMiddleware = require("../middleware/authMiddleware");
 
@@ -35,6 +36,9 @@ router.get("/by-category/top", getTopDevelopmentWorkByCategory);
 
 // GET DEVELOPMENT WORK BY YEAR (1 per year)
 router.get("/by-year", getDevelopmentWorkByYear);
+
+// GET PR OFFICE WORKS
+router.get("/pr-office", getPROfficeWorks);
 
 // GET BY ID
 router.get("/:id", getDevelopmentWorkById);

@@ -620,3 +620,35 @@ exports.getDevelopmentWorkByPlace = (req, res) => {
   }
 };
 
+exports.getPROfficeWorks = (req, res) => {
+  const { lang, limit = 4, office = 'thergaon' } = req.query;
+  const targetLang = getTargetLanguage(req);
+  
+  let keyword1, keyword2;
+  if (office === 'panvel') {
+    keyword1 = '%Panvel%';
+    keyword2 = '%पनवेल%';
+  } else {
+    keyword1 = '%Thergaon%';
+    keyword2 = '%थेरगाव%';
+  }
+
+  const sql = "SELECT id, title, category, SUBSTRING(description, 1, 200) as description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work WHERE category LIKE ? OR category LIKE ? OR title LIKE ? OR title LIKE ? ORDER BY COALESCE(news_date, created_at) DESC LIMIT ?";
+  
+  db.query(sql, [keyword1, keyword2, keyword1, keyword2, parseInt(limit)], async (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (Array.isArray(result)) result.forEach(formatItem);
+
+    if (targetLang) {
+      try {
+        const translated = await Promise.all(
+          result.map((item) => translateDevelopmentWorkItem(item, targetLang))
+        );
+        return res.json({ data: translated });
+      } catch (transErr) {
+        console.error("Error translating PR Office works:", transErr.message);
+      }
+    }
+    res.json({ data: result });
+  });
+};
