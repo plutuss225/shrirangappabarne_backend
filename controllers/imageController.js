@@ -36,7 +36,7 @@ exports.getAllImages = (req, res) => {
   const search = req.query.search || "";
   const isPaginated = !isNaN(page);
 
-  let queryStr = "SELECT id, title, category, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images";
+  let queryStr = "SELECT id, title, category, date, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images";
   let countQueryStr = "SELECT COUNT(*) as total FROM images";
   let queryParams = [];
   
@@ -79,7 +79,7 @@ exports.getAllImages = (req, res) => {
     });
   } else {
     // Original behavior for backward compatibility
-    db.query("SELECT id, title, category, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images ORDER BY created_at DESC LIMIT 50", async (err, result) => {
+    db.query("SELECT id, title, category, date, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images ORDER BY created_at DESC LIMIT 50", async (err, result) => {
       if (err) return res.status(500).json(err);
       
       if (Array.isArray(result)) result.forEach(formatItem);
@@ -102,7 +102,7 @@ exports.getAllImages = (req, res) => {
 
 // GET BY ID
 exports.getImageById = (req, res) => {
-  db.query("SELECT id, title, category, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images WHERE id=?", [req.params.id], async (err, result) => {
+  db.query("SELECT id, title, category, date, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images WHERE id=?", [req.params.id], async (err, result) => {
     if (err) return res.status(500).json(err);
     if (Array.isArray(result)) result.forEach(formatItem);
     if (result.length === 0) return res.status(404).json({ message: "Image not found" });
@@ -123,15 +123,15 @@ exports.getImageById = (req, res) => {
 
 // INSERT IMAGE
 exports.createImage = (req, res) => {
-  const { image, isHeroSelectionImage, title, category } = req.body;
+  const { image, isHeroSelectionImage, title, category, date } = req.body;
 
   if (!image) {
     return res.status(400).json({ error: "Image path/URL is required" });
   }
 
   db.query(
-    "INSERT INTO images (image, isHeroSelectionImage, title, category) VALUES (?,?,?,?)",
-    [base64ToBuffer(image), isHeroSelectionImage ? 1 : 0, title || null, category || null],
+    "INSERT INTO images (image, isHeroSelectionImage, title, category, date) VALUES (?,?,?,?,?)",
+    [base64ToBuffer(image), isHeroSelectionImage ? 1 : 0, title || null, category || null, date || null],
     (err, result) => {
       if (err) return res.status(500).json(err);
       if (Array.isArray(result)) result.forEach(formatItem);
@@ -142,10 +142,10 @@ exports.createImage = (req, res) => {
 
 // UPDATE IMAGE
 exports.updateImage = (req, res) => {
-  const { image, isHeroSelectionImage, title, category } = req.body;
+  const { image, isHeroSelectionImage, title, category, date } = req.body;
 
-  let sql = "UPDATE images SET isHeroSelectionImage=?, title=?, category=?";
-  let params = [isHeroSelectionImage ? 1 : 0, title || null, category || null];
+  let sql = "UPDATE images SET isHeroSelectionImage=?, title=?, category=?, date=?";
+  let params = [isHeroSelectionImage ? 1 : 0, title || null, category || null, date || null];
 
   if (image !== undefined && !(typeof image === 'string' && image.startsWith('/api/'))) {
     sql += ", image=?";
@@ -182,7 +182,7 @@ exports.deleteImage = (req, res) => {
 // GET HERO IMAGES (isHeroSelectionImage = 1, latest first)
 exports.getHeroImages = (req, res) => {
   db.query(
-    "SELECT id, title, category, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images WHERE isHeroSelectionImage = 1 ORDER BY created_at DESC LIMIT 20",
+    "SELECT id, title, category, date, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images WHERE isHeroSelectionImage = 1 ORDER BY created_at DESC LIMIT 20",
     async (err, result) => {
       if (err) return res.status(500).json(err);
 
@@ -212,7 +212,7 @@ exports.getImagesByCategory = (req, res) => {
   const search = req.query.search || "";
   const isPaginated = !isNaN(page);
 
-  let queryStr = "SELECT id, title, category, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images WHERE category = ?";
+  let queryStr = "SELECT id, title, category, date, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images WHERE category = ?";
   let countQueryStr = "SELECT COUNT(*) as total FROM images WHERE category = ?";
   let queryParams = [category];
 
@@ -256,7 +256,7 @@ exports.getImagesByCategory = (req, res) => {
   } else {
     // Original behavior
     db.query(
-      "SELECT id, title, category, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images WHERE category = ? ORDER BY created_at DESC LIMIT 50",
+      "SELECT id, title, category, date, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images WHERE category = ? ORDER BY created_at DESC LIMIT 50",
       [category],
       async (err, result) => {
         if (err) return res.status(500).json(err);
@@ -296,7 +296,7 @@ exports.getCategories = (req, res) => {
 // GET LATEST 6 IMAGES
 exports.getLatestImages = (req, res) => {
   db.query(
-    "SELECT id, title, category, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images ORDER BY created_at DESC LIMIT 6",
+    "SELECT id, title, category, date, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images ORDER BY created_at DESC LIMIT 6",
     async (err, result) => {
       if (err) return res.status(500).json(err);
       
