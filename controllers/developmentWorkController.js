@@ -236,17 +236,7 @@ exports.createDevelopmentWork = async (req, res) => {
     videoUrl = await uploadMedia(video, 'video');
   }
 
-  let uploadedImages = [];
-  if (images && Array.isArray(images)) {
-    for (const img of images) {
-      if (img.startsWith('http') || img.startsWith('/api/')) {
-        uploadedImages.push(img);
-      } else {
-        let url = await uploadMedia(img, 'image');
-        if (url) uploadedImages.push(url);
-      }
-    }
-  }
+  let uploadedImages = images && Array.isArray(images) ? images : [];
 
   db.query(
     "INSERT INTO development_work (title, category, description, place, image, video, news_date, images) VALUES (?,?,?,?,?,?,?,?)",
@@ -278,17 +268,7 @@ exports.updateDevelopmentWork = async (req, res) => {
   }
 
   if (images !== undefined) {
-    let uploadedImages = [];
-    if (Array.isArray(images)) {
-      for (const img of images) {
-        if (img.startsWith('http') || img.startsWith('/api/')) {
-          uploadedImages.push(img);
-        } else {
-          let url = await uploadMedia(img, 'image');
-          if (url) uploadedImages.push(url);
-        }
-      }
-    }
+    let uploadedImages = Array.isArray(images) ? images : [];
     sql += ", images=?";
     params.push(JSON.stringify(uploadedImages));
   }
