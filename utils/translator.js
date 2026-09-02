@@ -35,7 +35,23 @@ async function translateText(text, targetLang) {
     }
   } catch (error) {
     if (error.response && error.response.status === 429) {
-      console.warn("Translation rate limit hit (429). Returning original text.");
+      console.warn("Google Translate rate limit hit (429). Trying fallback API...");
+      try {
+        // Fallback to MyMemory Translation API
+        const fallbackUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${source}|${target}`;
+        const fallbackResponse = await axios.get(fallbackUrl, { timeout: 3000 });
+        if (fallbackResponse.data && fallbackResponse.data.responseData && fallbackResponse.data.responseData.translatedText) {
+          // MyMemory returns "QUERY LENGTH LIMIT EXCEEDED..." if the text is too long (over 500 chars)
+          // or if the daily limit is reached.
+          const translated = fallbackResponse.data.responseData.translatedText;
+          if (!translated.includes("LIMIT EXCEEDED")) {
+            translationCache.set(cacheKey, translated);
+            return translated;
+          }
+        }
+      } catch (fallbackError) {
+        console.warn("Fallback translation also failed. Returning original text.");
+      }
     } else {
       console.error(`Translation failed for text "${text.substring(0, 20)}...":`, error.message);
     }
