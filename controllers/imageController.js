@@ -48,7 +48,7 @@ exports.getAllImages = (req, res) => {
     queryParams.push(`%${search}%`);
   }
 
-  queryStr += " ORDER BY created_at DESC";
+  queryStr += " ORDER BY date DESC, created_at DESC";
 
   if (isPaginated) {
     const offset = (page - 1) * limit;
@@ -81,7 +81,7 @@ exports.getAllImages = (req, res) => {
     });
   } else {
     // Original behavior for backward compatibility
-    db.query("SELECT id, title, description, category, date, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images ORDER BY created_at DESC LIMIT 50", async (err, result) => {
+    db.query("SELECT id, title, description, category, date, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images ORDER BY date DESC, created_at DESC LIMIT 50", async (err, result) => {
       if (err) return res.status(500).json(err);
       
       if (Array.isArray(result)) result.forEach(formatItem);
@@ -184,7 +184,7 @@ exports.deleteImage = (req, res) => {
 // GET HERO IMAGES (isHeroSelectionImage = 1, latest first)
 exports.getHeroImages = (req, res) => {
   db.query(
-    "SELECT id, title, description, category, date, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images WHERE isHeroSelectionImage = 1 ORDER BY created_at DESC LIMIT 20",
+    "SELECT id, title, description, category, date, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images WHERE isHeroSelectionImage = 1 ORDER BY date DESC, created_at DESC LIMIT 20",
     async (err, result) => {
       if (err) return res.status(500).json(err);
 
@@ -224,7 +224,7 @@ exports.getImagesByCategory = (req, res) => {
     queryParams.push(`%${search}%`);
   }
 
-  queryStr += " ORDER BY created_at DESC";
+  queryStr += " ORDER BY date DESC, created_at DESC";
 
   if (isPaginated) {
     const offset = (page - 1) * limit;
@@ -258,7 +258,7 @@ exports.getImagesByCategory = (req, res) => {
   } else {
     // Original behavior
     db.query(
-      "SELECT id, title, description, category, date, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images WHERE category = ? ORDER BY created_at DESC LIMIT 50",
+      "SELECT id, title, description, category, date, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images WHERE category = ? ORDER BY date DESC, created_at DESC LIMIT 50",
       [category],
       async (err, result) => {
         if (err) return res.status(500).json(err);
@@ -298,7 +298,7 @@ exports.getCategories = (req, res) => {
 // GET LATEST 6 IMAGES
 exports.getLatestImages = (req, res) => {
   db.query(
-    "SELECT id, title, description, category, date, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images ORDER BY created_at DESC LIMIT 6",
+    "SELECT id, title, description, category, date, isHeroSelectionImage, created_at, LENGTH(image) > 0 as has_image FROM images ORDER BY date DESC, created_at DESC LIMIT 6",
     async (err, result) => {
       if (err) return res.status(500).json(err);
       
