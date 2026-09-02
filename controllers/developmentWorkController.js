@@ -80,7 +80,7 @@ async function translateDevelopmentWorkItem(item, targetLang) {
 exports.getAllDevelopmentWork = (req, res) => {
   const { page, limit, search, category, place, startDate, endDate } = req.query;
 
-  let sql = "SELECT id, title, category, SUBSTRING(description, 1, 200) as description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work WHERE 1=1";
+  let sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -341,7 +341,7 @@ exports.getCategories = (req, res) => {
 exports.getDevelopmentWorkByCategory = (req, res) => {
   const { category, search, page, limit } = req.query;
 
-  let sql = "SELECT id, title, category, SUBSTRING(description, 1, 200) as description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work WHERE 1=1";
+  let sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -431,7 +431,7 @@ exports.getDevelopmentWorkByCategory = (req, res) => {
 exports.getTopDevelopmentWorkByCategory = (req, res) => {
   const { category } = req.query;
 
-  let sql = "SELECT id, title, category, SUBSTRING(description, 1, 200) as description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work";
+  let sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work";
   const params = [];
 
   if (category) {
@@ -536,7 +536,7 @@ exports.getPlaces = (req, res) => {
 exports.getDevelopmentWorkByPlace = (req, res) => {
   const { place, search, page, limit } = req.query;
 
-  let sql = "SELECT id, title, category, SUBSTRING(description, 1, 200) as description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work WHERE 1=1";
+  let sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work WHERE 1=1";
   const params = [];
 
   if (place) {
@@ -633,7 +633,7 @@ exports.getPROfficeWorks = (req, res) => {
     keyword2 = '%थेरगाव%';
   }
 
-  const sql = "SELECT id, title, category, SUBSTRING(description, 1, 200) as description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work WHERE category LIKE ? OR category LIKE ? OR title LIKE ? OR title LIKE ? ORDER BY COALESCE(news_date, created_at) DESC LIMIT ?";
+  const sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work WHERE category LIKE ? OR category LIKE ? OR title LIKE ? OR title LIKE ? ORDER BY COALESCE(news_date, created_at) DESC LIMIT ?";
   
   db.query(sql, [keyword1, keyword2, keyword1, keyword2, parseInt(limit)], async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
