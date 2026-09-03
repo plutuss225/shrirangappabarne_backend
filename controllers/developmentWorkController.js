@@ -80,7 +80,7 @@ async function translateDevelopmentWorkItem(item, targetLang) {
 exports.getAllDevelopmentWork = (req, res) => {
   const { page, limit, search, category, place, startDate, endDate, year } = req.query;
 
-  let sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work WHERE 1=1";
+  let sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM development_work WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -247,7 +247,7 @@ exports.createDevelopmentWork = async (req, res) => {
 
   db.query(
     "INSERT INTO development_work (title, category, description, place, image, video, news_date, images) VALUES (?,?,?,?,?,?,?,?)",
-    [title, category || 'DevelopmentWork', description, place, base64ToBuffer(image), base64ToBuffer(video), news_date, JSON.stringify(uploadedImages)],
+    [title, category || 'DevelopmentWork', description, place, base64ToBuffer(image), base64ToBuffer(videoUrl), news_date, JSON.stringify(uploadedImages)],
     (err, result) => {
       if (err) return res.json(err);
       if (Array.isArray(result)) result.forEach(formatItem);
@@ -269,8 +269,12 @@ exports.updateDevelopmentWork = async (req, res) => {
   }
   
   if (video !== undefined && !(typeof video === 'string' && (video.startsWith('/api/') || video.startsWith('http')))) {
+    let videoUrl = video;
+    if (video) {
+      videoUrl = await uploadMedia(video, 'video');
+    }
     sql += ", video=?";
-    params.push(base64ToBuffer(video));
+    params.push(base64ToBuffer(videoUrl));
   }
 
   if (images !== undefined) {
@@ -542,7 +546,7 @@ exports.getPlaces = (req, res) => {
 exports.getDevelopmentWorkByPlace = (req, res) => {
   const { place, search, page, limit } = req.query;
 
-  let sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work WHERE 1=1";
+  let sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM development_work WHERE 1=1";
   const params = [];
 
   if (place) {
@@ -635,6 +639,47 @@ exports.getDevelopmentWorkByPlace = (req, res) => {
       res.json(result);
     });
   }
+};
+
+// GET LATEST DEVELOPMENT WORK PER PLACE (FOR MAP)
+exports.getMapDevelopmentWorks = (req, res) => {
+  let sql = `
+    SELECT dw.id, dw.title, dw.category, dw.description, dw.place, dw.news_date, dw.created_at, 
+           LENGTH(dw.image) > 0 as has_image, LENGTH(dw.video) > 0 as has_video, 
+           CASE WHEN LENGTH(dw.image) < 300 THEN CONVERT(dw.image, CHAR) ELSE NULL END as image_url, 
+           CASE WHEN LENGTH(dw.video) < 300 THEN CONVERT(dw.video, CHAR) ELSE NULL END as video_url
+    FROM development_work dw
+    WHERE dw.id = (
+        SELECT id
+        FROM development_work dw2
+        WHERE dw2.place = dw.place
+        ORDER BY COALESCE(dw2.news_date, dw2.created_at) DESC, dw2.id DESC
+        LIMIT 1
+    )
+    ORDER BY COALESCE(dw.news_date, dw.created_at) DESC
+  `;
+
+  db.query(sql, [], async (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (Array.isArray(result)) result.forEach(formatItem);
+
+    const targetLang = getTargetLanguage(req);
+    if (targetLang) {
+      try {
+        const translated = [];
+        for (let i = 0; i < result.length; i += 10) {
+          translated.push(...await Promise.all(
+            result.slice(i, i + 10).map((item) => translateDevelopmentWorkItem(item, targetLang))
+          ));
+        }
+        return res.json({ data: translated });
+      } catch (transErr) {
+        console.error("Error translating map works:", transErr.message);
+      }
+    }
+
+    res.json({ data: result });
+  });
 };
 
 exports.getPROfficeWorks = (req, res) => {
