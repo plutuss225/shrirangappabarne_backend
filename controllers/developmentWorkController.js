@@ -240,7 +240,7 @@ exports.createDevelopmentWork = async (req, res) => {
 
   db.query(
     "INSERT INTO development_work (title, category, description, place, image, video, news_date, images) VALUES (?,?,?,?,?,?,?,?)",
-    [title, category || 'DevelopmentWork', description, place, base64ToBuffer(image), videoUrl ? Buffer.from(videoUrl, 'utf8') : null, news_date, JSON.stringify(uploadedImages)],
+    [title, category || 'DevelopmentWork', description, place, base64ToBuffer(image), base64ToBuffer(video), news_date, JSON.stringify(uploadedImages)],
     (err, result) => {
       if (err) return res.json(err);
       if (Array.isArray(result)) result.forEach(formatItem);
@@ -262,9 +262,8 @@ exports.updateDevelopmentWork = async (req, res) => {
   }
   
   if (video !== undefined && !(typeof video === 'string' && (video.startsWith('/api/') || video.startsWith('http')))) {
-    let videoUrl = await uploadMedia(video, 'video');
     sql += ", video=?";
-    params.push(videoUrl ? Buffer.from(videoUrl, 'utf8') : null);
+    params.push(base64ToBuffer(video));
   }
 
   if (images !== undefined) {

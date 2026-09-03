@@ -118,14 +118,9 @@ exports.createEvent = async (req, res) => {
   
   const imagesStr = Array.isArray(images) ? JSON.stringify(images) : JSON.stringify([]);
 
-  let videoUrl = video;
-  if (video && !video.startsWith('/api/') && !video.startsWith('http')) {
-    videoUrl = await uploadMedia(video, 'video');
-  }
-
   db.query(
     "INSERT INTO event (title, description, main_image, video, images) VALUES (?,?,?,?,?)",
-    [title, description, base64ToBuffer(main_image), videoUrl ? Buffer.from(videoUrl, 'utf8') : null, imagesStr],
+    [title, description, base64ToBuffer(main_image), base64ToBuffer(video), imagesStr],
     (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
       if (Array.isArray(result)) result.forEach(formatItem);
@@ -149,9 +144,8 @@ exports.updateEvent = async (req, res) => {
   }
   
   if (video !== undefined && !(typeof video === 'string' && (video.startsWith('/api/') || video.startsWith('http')))) {
-    let videoUrl = await uploadMedia(video, 'video');
     sql += ", video=?";
-    params.push(videoUrl ? Buffer.from(videoUrl, 'utf8') : null);
+    params.push(base64ToBuffer(video));
   }
 
   sql += " WHERE id=?";

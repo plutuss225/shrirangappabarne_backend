@@ -240,14 +240,9 @@ exports.getNewsById = (req, res) => {
 exports.createNews = async (req, res) => {
   const { title, category, description, image, video, news_date } = req.body;
 
-  let videoUrl = video;
-  if (video && !video.startsWith('/api/') && !video.startsWith('http')) {
-    videoUrl = await uploadMedia(video, 'video');
-  }
-
   db.query(
     "INSERT INTO news (title, category, description, image, video, news_date) VALUES (?,?,?,?,?,?)",
-    [title, category || 'News', description, base64ToBuffer(image), videoUrl ? Buffer.from(videoUrl, 'utf8') : null, news_date],
+    [title, category || 'News', description, base64ToBuffer(image), base64ToBuffer(video), news_date],
     (err, result) => {
       if (err) return res.json(err);
       if (Array.isArray(result)) result.forEach(formatItem);
@@ -269,9 +264,8 @@ exports.updateNews = async (req, res) => {
   }
   
   if (video !== undefined && !(typeof video === 'string' && (video.startsWith('/api/') || video.startsWith('http')))) {
-    let videoUrl = await uploadMedia(video, 'video');
     sql += ", video=?";
-    params.push(videoUrl ? Buffer.from(videoUrl, 'utf8') : null);
+    params.push(base64ToBuffer(video));
   }
 
   sql += " WHERE id=?";
