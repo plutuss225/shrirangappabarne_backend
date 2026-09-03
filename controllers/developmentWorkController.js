@@ -165,11 +165,15 @@ exports.getAllDevelopmentWork = (req, res) => {
         const targetLang = getTargetLanguage(req);
         if (targetLang) {
           try {
-            finalResult = await Promise.all(
-              result.map((item) => translateDevelopmentWorkItem(item, targetLang))
-            );
+            finalResult = [];
+            for (let i = 0; i < result.length; i += 10) {
+              finalResult.push(...await Promise.all(
+                result.slice(i, i + 10).map((item) => translateDevelopmentWorkItem(item, targetLang))
+              ));
+            }
           } catch (transErr) {
             console.error("Error in parallel translation:", transErr.message);
+            finalResult = result;
           }
         }
 
@@ -192,9 +196,12 @@ exports.getAllDevelopmentWork = (req, res) => {
     const targetLang = getTargetLanguage(req);
       if (targetLang) {
         try {
-          const translatedResult = await Promise.all(
-            result.map((item) => translateDevelopmentWorkItem(item, targetLang))
-          );
+          const translatedResult = [];
+          for (let i = 0; i < result.length; i += 10) {
+            translatedResult.push(...await Promise.all(
+              result.slice(i, i + 10).map((item) => translateDevelopmentWorkItem(item, targetLang))
+            ));
+          }
           return res.json(translatedResult);
         } catch (transErr) {
           console.error("Error in parallel translation:", transErr.message);
@@ -373,11 +380,15 @@ exports.getDevelopmentWorkByCategory = (req, res) => {
         const targetLang = getTargetLanguage(req);
         if (targetLang) {
           try {
-            finalResult = await Promise.all(
-              result.map((item) => translateDevelopmentWorkItem(item, targetLang))
-            );
+            finalResult = [];
+            for (let i = 0; i < result.length; i += 10) {
+              finalResult.push(...await Promise.all(
+                result.slice(i, i + 10).map((item) => translateDevelopmentWorkItem(item, targetLang))
+              ));
+            }
           } catch (transErr) {
             console.error("Error translating development_work by category:", transErr.message);
+            finalResult = result;
           }
         }
 
@@ -400,9 +411,12 @@ exports.getDevelopmentWorkByCategory = (req, res) => {
     const targetLang = getTargetLanguage(req);
       if (targetLang) {
         try {
-          const translated = await Promise.all(
-            result.map((item) => translateDevelopmentWorkItem(item, targetLang))
-          );
+          const translated = [];
+          for (let i = 0; i < result.length; i += 10) {
+            translated.push(...await Promise.all(
+              result.slice(i, i + 10).map((item) => translateDevelopmentWorkItem(item, targetLang))
+            ));
+          }
           return res.json(translated);
         } catch (transErr) {
           console.error("Error translating development_work by category:", transErr.message);
@@ -475,9 +489,12 @@ exports.getDevelopmentWorkByYear = (req, res) => {
     const targetLang = getTargetLanguage(req);
     if (targetLang) {
       try {
-        const translated = await Promise.all(
-          result.map((item) => translateDevelopmentWorkItem(item, targetLang))
-        );
+        const translated = [];
+        for (let i = 0; i < result.length; i += 10) {
+          translated.push(...await Promise.all(
+            result.slice(i, i + 10).map((item) => translateDevelopmentWorkItem(item, targetLang))
+          ));
+        }
         return res.json(translated);
       } catch (transErr) {
         console.error("Error translating development_work by year:", transErr.message);
@@ -568,11 +585,19 @@ exports.getDevelopmentWorkByPlace = (req, res) => {
         const targetLang = getTargetLanguage(req);
         if (targetLang) {
           try {
-            finalResult = await Promise.all(
-              result.map((item) => translateDevelopmentWorkItem(item, targetLang))
-            );
+            finalResult = [];
+            // Process in batches of 10 to avoid overwhelming translation API
+            const batchSize = 10;
+            for (let i = 0; i < result.length; i += batchSize) {
+              const batch = result.slice(i, i + batchSize);
+              const translatedBatch = await Promise.all(
+                batch.map((item) => translateDevelopmentWorkItem(item, targetLang))
+              );
+              finalResult.push(...translatedBatch);
+            }
           } catch (transErr) {
             console.error("Error translating development_work by place:", transErr.message);
+            finalResult = result; // fallback to original on major error
           }
         }
 
@@ -595,9 +620,12 @@ exports.getDevelopmentWorkByPlace = (req, res) => {
       const targetLang = getTargetLanguage(req);
       if (targetLang) {
         try {
-          const translated = await Promise.all(
-            result.map((item) => translateDevelopmentWorkItem(item, targetLang))
-          );
+          const translated = [];
+          for (let i = 0; i < result.length; i += 10) {
+            translated.push(...await Promise.all(
+              result.slice(i, i + 10).map((item) => translateDevelopmentWorkItem(item, targetLang))
+            ));
+          }
           return res.json(translated);
         } catch (transErr) {
           console.error("Error translating development_work by place:", transErr.message);
@@ -630,9 +658,12 @@ exports.getPROfficeWorks = (req, res) => {
 
     if (targetLang) {
       try {
-        const translated = await Promise.all(
-          result.map((item) => translateDevelopmentWorkItem(item, targetLang))
-        );
+        const translated = [];
+        for (let i = 0; i < result.length; i += 10) {
+          translated.push(...await Promise.all(
+            result.slice(i, i + 10).map((item) => translateDevelopmentWorkItem(item, targetLang))
+          ));
+        }
         return res.json({ data: translated });
       } catch (transErr) {
         console.error("Error translating PR Office works:", transErr.message);
