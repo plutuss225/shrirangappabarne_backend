@@ -70,7 +70,23 @@ async function translateEventItem(item, targetLang) {
 
 // GET ALL EVENTS
 exports.getAllEvents = (req, res) => {
-  db.query("SELECT id, title, description, created_at, LENGTH(main_image) > 0 as has_main_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(main_image) < 300 THEN CONVERT(main_image, CHAR) ELSE NULL END as main_image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM event ORDER BY id DESC", async (err, result) => {
+  const { limit, page } = req.query;
+  let sql = "SELECT id, title, description, created_at, LENGTH(main_image) > 0 as has_main_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(main_image) < 300 THEN CONVERT(main_image, CHAR) ELSE NULL END as main_image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM event ORDER BY id DESC";
+  const params = [];
+
+  if (limit) {
+    const limitNum = parseInt(limit);
+    if (page) {
+      const offset = (parseInt(page) - 1) * limitNum;
+      sql += " LIMIT ? OFFSET ?";
+      params.push(limitNum, offset);
+    } else {
+      sql += " LIMIT ?";
+      params.push(limitNum);
+    }
+  }
+
+  db.query(sql, params, async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
     
     try {
@@ -83,9 +99,12 @@ exports.getAllEvents = (req, res) => {
     const targetLang = getTargetLanguage(req);
     if (targetLang) {
       try {
-        const translatedResult = await Promise.all(
-          result.map(item => translateEventItem(item, targetLang))
-        );
+        const translatedResult = [];
+        for (let i = 0; i < result.length; i += 10) {
+          translatedResult.push(...await Promise.all(
+            result.slice(i, i + 10).map((item) => translateEventItem(item, targetLang))
+          ));
+        }
         return res.json(translatedResult);
       } catch (transErr) {
         console.error("Error in parallel translation:", transErr.message);
@@ -130,9 +149,14 @@ exports.createEvent = async (req, res) => {
   
   const imagesStr = Array.isArray(images) ? JSON.stringify(images) : JSON.stringify([]);
 
+  let videoUrl = video;
+  if (video && !video.startsWith('/api/') && !video.startsWith('http')) {
+    videoUrl = await uploadMedia(video, 'video');
+  }
+
   db.query(
     "INSERT INTO event (title, description, main_image, video, images) VALUES (?,?,?,?,?)",
-    [title, description, base64ToBuffer(main_image), base64ToBuffer(video), imagesStr],
+    [title, description, base64ToBuffer(main_image), base64ToBuffer(videoUrl), imagesStr],
     (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
       if (Array.isArray(result)) result.forEach(formatItem);
@@ -156,8 +180,12 @@ exports.updateEvent = async (req, res) => {
   }
   
   if (video !== undefined && !(typeof video === 'string' && (video.startsWith('/api/') || video.startsWith('http')))) {
+    let videoUrl = video;
+    if (video) {
+      videoUrl = await uploadMedia(video, 'video');
+    }
     sql += ", video=?";
-    params.push(base64ToBuffer(video));
+    params.push(base64ToBuffer(videoUrl));
   }
 
   sql += " WHERE id=?";

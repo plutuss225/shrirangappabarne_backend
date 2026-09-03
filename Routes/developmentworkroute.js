@@ -12,6 +12,7 @@ const {
   getDevelopmentWorkByYear,
   getPlaces,
   getDevelopmentWorkByPlace,
+  getMapDevelopmentWorks,
   getPROfficeWorks
 } = require("../controllers/developmentWorkController");
 const authMiddleware = require("../middleware/authMiddleware");
@@ -39,6 +40,9 @@ router.get("/by-year", getDevelopmentWorkByYear);
 
 // GET PR OFFICE WORKS
 router.get("/pr-office", getPROfficeWorks);
+
+// GET MAP WORKS
+router.get("/map", getMapDevelopmentWorks);
 
 // GET BY ID
 router.get("/:id", getDevelopmentWorkById);
