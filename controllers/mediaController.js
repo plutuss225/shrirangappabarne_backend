@@ -1,24 +1,22 @@
 const db = require('../db');
 
+// Simple LRU Cache to avoid OOM on large videos during multiple Range requests
+const mediaCache = new Map();
+const MAX_CACHE_SIZE = 5; // keep max 5 media files in RAM
+
 exports.getMedia = (req, res) => {
   const { table, id, field } = req.params;
-  console.log(`Media Request: table=${table}, id=${id}, field=${field}`);
+  // console.log(`Media Request: table=${table}, id=${id}, field=${field}`);
   const allowedTables = ['news', 'development_work', 'event', 'images', 'blogs'];
   const allowedFields = ['image', 'video', 'main_image', 'slider_images'];
   
   if (!allowedTables.includes(table) || !allowedFields.includes(field)) {
-    console.log(`Invalid request: table=${table}, field=${field}`);
     return res.status(400).send('Invalid request');
   }
 
-  db.query(`SELECT ${field} FROM ${table} WHERE id = ?`, [id], (err, result) => {
-    if (err) return res.status(500).send(err.message);
-    if (!result || result.length === 0 || !result[0][field]) {
-      return res.status(404).send('Not found');
-    }
-    
-    const data = result[0][field];
+  const cacheKey = `${table}_${field}_${id}`;
 
+  const serveBuffer = (data) => {
     // If the stored value is a URL string (e.g. Cloudinary URL stored as TEXT), redirect to it
     if (typeof data === 'string') {
       if (data.startsWith('http')) {
@@ -68,6 +66,34 @@ exports.getMedia = (req, res) => {
     
     res.setHeader('Content-Length', buffer.length);
     res.end(buffer);
+  };
+
+  if (mediaCache.has(cacheKey)) {
+    // Refresh position in LRU (delete and re-add)
+    const data = mediaCache.get(cacheKey);
+    mediaCache.delete(cacheKey);
+    mediaCache.set(cacheKey, data);
+    return serveBuffer(data);
+  }
+
+  db.query(`SELECT ${field} FROM ${table} WHERE id = ?`, [id], (err, result) => {
+    if (err) return res.status(500).send(err.message);
+    if (!result || result.length === 0 || !result[0][field]) {
+      return res.status(404).send('Not found');
+    }
+    
+    const data = result[0][field];
+    
+    if (Buffer.isBuffer(data) && data.length > 500) {
+      if (mediaCache.size >= MAX_CACHE_SIZE) {
+        // Evict oldest (first item in Map)
+        const firstKey = mediaCache.keys().next().value;
+        mediaCache.delete(firstKey);
+      }
+      mediaCache.set(cacheKey, data);
+    }
+
+    serveBuffer(data);
   });
 };
 
