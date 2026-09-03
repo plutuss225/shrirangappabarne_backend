@@ -50,23 +50,7 @@ function formatItem(item) {
 }
 
 
-async function translateEventItem(item, targetLang) {
-  if (!targetLang) return item;
-  try {
-    const [translatedTitle, translatedDescription] = await Promise.all([
-      item.title ? translateText(item.title, targetLang) : Promise.resolve(item.title),
-      item.description ? translateText(item.description, targetLang) : Promise.resolve(item.description)
-    ]);
-    return {
-      ...item,
-      title: translatedTitle,
-      description: translatedDescription
-    };
-  } catch (err) {
-    console.error("Error in translateEventItem:", err.message);
-    return item;
-  }
-}
+// Translation removed per user request
 
 // GET ALL EVENTS
 exports.getAllEvents = (req, res) => {
@@ -96,21 +80,6 @@ exports.getAllEvents = (req, res) => {
       return res.status(500).json({ error: "Data formatting error" });
     }
 
-    const targetLang = getTargetLanguage(req);
-    if (targetLang) {
-      try {
-        const translatedResult = [];
-        for (let i = 0; i < result.length; i += 10) {
-          translatedResult.push(...await Promise.all(
-            result.slice(i, i + 10).map((item) => translateEventItem(item, targetLang))
-          ));
-        }
-        return res.json(translatedResult);
-      } catch (transErr) {
-        console.error("Error in parallel translation:", transErr.message);
-      }
-    }
-    
     res.json(result);
   });
 };
@@ -128,16 +97,6 @@ exports.getEventById = (req, res) => {
     }
     
     if (result.length === 0) return res.json(result);
-    
-    const targetLang = getTargetLanguage(req);
-    if (targetLang) {
-      try {
-        const translatedItem = await translateEventItem(result[0], targetLang);
-        return res.json([translatedItem]);
-      } catch (transErr) {
-        console.error("Error in single translation:", transErr.message);
-      }
-    }
     
     res.json(result);
   });
