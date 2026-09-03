@@ -33,6 +33,18 @@ function formatItem(item) {
     delete item.main_image_url;
     delete item.has_video;
     delete item.video_url;
+
+    if (item.images) {
+      if (typeof item.images === 'string') {
+        try {
+          item.images = JSON.parse(item.images);
+        } catch(e) {
+          item.images = [];
+        }
+      }
+    } else {
+      item.images = [];
+    }
   }
   return item;
 }
@@ -58,7 +70,7 @@ async function translateEventItem(item, targetLang) {
 
 // GET ALL EVENTS
 exports.getAllEvents = (req, res) => {
-  db.query("SELECT id, title, description, created_at, LENGTH(main_image) > 0 as has_main_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(main_image) < 300 THEN CONVERT(main_image, CHAR) ELSE NULL END as main_image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM event ORDER BY id DESC", async (err, result) => {
+  db.query("SELECT id, title, description, created_at, LENGTH(main_image) > 0 as has_main_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(main_image) < 300 THEN CONVERT(main_image, CHAR) ELSE NULL END as main_image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM event ORDER BY id DESC", async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
     
     try {
