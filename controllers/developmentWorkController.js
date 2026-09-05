@@ -657,21 +657,7 @@ exports.getMapDevelopmentWorks = (req, res) => {
     if (err) return res.status(500).json({ error: err.message });
     if (Array.isArray(result)) result.forEach(formatItem);
 
-    const targetLang = getTargetLanguage(req);
-    if (targetLang) {
-      try {
-        const translated = [];
-        for (let i = 0; i < result.length; i += 10) {
-          translated.push(...await Promise.all(
-            result.slice(i, i + 10).map((item) => translateDevelopmentWorkItem(item, targetLang))
-          ));
-        }
-        return res.json({ data: translated });
-      } catch (transErr) {
-        console.error("Error translating map works:", transErr.message);
-      }
-    }
-
+    // Skip translation for map works to return the saved language (Marathi)
     res.json({ data: result });
   });
 };
