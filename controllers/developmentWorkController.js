@@ -239,9 +239,6 @@ exports.createDevelopmentWork = async (req, res) => {
   const { title, category, description, place, image, video, news_date, images } = req.body;
 
   let videoUrl = video;
-  if (video && !video.startsWith('/api/') && !video.startsWith('http')) {
-    videoUrl = await uploadMedia(video, 'video');
-  }
 
   let uploadedImages = images && Array.isArray(images) ? images : [];
 
@@ -270,9 +267,6 @@ exports.updateDevelopmentWork = async (req, res) => {
   
   if (video !== undefined && !(typeof video === 'string' && (video.startsWith('/api/') || video.startsWith('http')))) {
     let videoUrl = video;
-    if (video) {
-      videoUrl = await uploadMedia(video, 'video');
-    }
     sql += ", video=?";
     params.push(base64ToBuffer(videoUrl));
   }

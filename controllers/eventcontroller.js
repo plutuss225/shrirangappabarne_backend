@@ -109,9 +109,6 @@ exports.createEvent = async (req, res) => {
   const imagesStr = Array.isArray(images) ? JSON.stringify(images) : JSON.stringify([]);
 
   let videoUrl = video;
-  if (video && !video.startsWith('/api/') && !video.startsWith('http')) {
-    videoUrl = await uploadMedia(video, 'video');
-  }
 
   db.query(
     "INSERT INTO event (title, description, main_image, video, images) VALUES (?,?,?,?,?)",
@@ -140,9 +137,6 @@ exports.updateEvent = async (req, res) => {
   
   if (video !== undefined && !(typeof video === 'string' && (video.startsWith('/api/') || video.startsWith('http')))) {
     let videoUrl = video;
-    if (video) {
-      videoUrl = await uploadMedia(video, 'video');
-    }
     sql += ", video=?";
     params.push(base64ToBuffer(videoUrl));
   }
