@@ -285,11 +285,11 @@ exports.getImagesByCategory = (req, res) => {
 // GET ALL CATEGORIES
 exports.getCategories = (req, res) => {
   db.query(
-    "SELECT DISTINCT category FROM images WHERE category IS NOT NULL AND TRIM(category) != ''",
+    "SELECT DISTINCT category FROM images WHERE category IS NOT NULL AND TRIM(category) != '' AND image IS NOT NULL AND LENGTH(image) > 0",
     (err, result) => {
       if (err) return res.status(500).json(err);
       if (Array.isArray(result)) result.forEach(formatItem);
-    const categories = result.map(row => row.category);
+      const categories = result.map(row => row.category);
       res.json(categories);
     }
   );

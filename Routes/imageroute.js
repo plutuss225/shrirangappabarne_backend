@@ -25,11 +25,11 @@ router.get("/hero", getHeroImages);
 // GET ALL CATEGORIES
 router.get("/categories", getCategories);
 
+// GET IMAGES BY CATEGORY — must be before /:id to avoid route shadowing
+router.get("/category/:category", getImagesByCategory);
+
 // GET BY ID
 router.get("/:id", getImageById);
-
-// GET IMAGES BY CATEGORY
-router.get("/category/:category", getImagesByCategory);
 
 
 // INSERT IMAGE
