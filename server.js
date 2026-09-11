@@ -129,6 +129,22 @@ app.use("/person_funding", personFundingRoute);
 app.get("/", (req, res) => {
   res.send("Shrirang Appa Barne Backend API is running...");
 });
+app.get("/api/server-info", async (req, res) => {
+  try {
+    const response = await fetch("https://api.ipify.org?format=json");
+    const data = await response.json();
+
+    res.json({
+      hostname: require("os").hostname(),
+      publicIp: data.ip,
+      port: process.env.PORT
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
 
 // Start the server
 app.listen(PORT, "0.0.0.0", () => {
