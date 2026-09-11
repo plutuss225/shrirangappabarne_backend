@@ -9,7 +9,7 @@ const fs = require("fs");
 const path = require("path");
 
 const app = express();
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 3000;
 
 // Enable CORS
 const allowedOrigins = process.env.ALLOWED_ORIGINS
@@ -131,6 +131,6 @@ app.get("/", (req, res) => {
 });
 
 // Start the server
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server is running on port ${PORT}`);
 });
