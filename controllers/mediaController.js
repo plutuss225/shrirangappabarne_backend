@@ -1,5 +1,4 @@
 const db = require('../db');
-const { base64ToBuffer, getMimeType } = require('../utils/bufferUtils');
 
 // Simple LRU Cache to avoid OOM on large videos during multiple Range requests
 const mediaCache = new Map();
@@ -7,6 +6,7 @@ const MAX_CACHE_SIZE = 5; // keep max 5 media files in RAM
 
 exports.getMedia = (req, res) => {
   const { table, id, field } = req.params;
+  // console.log(`Media Request: table=${table}, id=${id}, field=${field}`);
   const allowedTables = ['news', 'development_work', 'event', 'images', 'blogs'];
   const allowedFields = ['image', 'video', 'main_image', 'slider_images'];
   
@@ -17,15 +17,10 @@ exports.getMedia = (req, res) => {
   const cacheKey = `${table}_${field}_${id}`;
 
   const serveBuffer = (data) => {
-    if (!data) return res.status(404).send('Not found');
-
     // If the stored value is a URL string (e.g. Cloudinary URL stored as TEXT), redirect to it
     if (typeof data === 'string') {
       if (data.startsWith('http')) {
         return res.redirect(302, data);
-      }
-      if (data.startsWith('data:image/') || data.startsWith('data:video/')) {
-        data = base64ToBuffer(data);
       }
     }
 
@@ -39,6 +34,7 @@ exports.getMedia = (req, res) => {
     }
 
     const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+    const { getMimeType } = require('../utils/bufferUtils');
     const type = getMimeType(buffer);
     
     res.setHeader('Content-Type', type);
@@ -73,41 +69,20 @@ exports.getMedia = (req, res) => {
   };
 
   if (mediaCache.has(cacheKey)) {
+    // Refresh position in LRU (delete and re-add)
     const data = mediaCache.get(cacheKey);
     mediaCache.delete(cacheKey);
     mediaCache.set(cacheKey, data);
     return serveBuffer(data);
   }
 
-  // Include images column if field is image to allow fallback to images[0]
-  const selectCols = field === 'image' ? 'image, images' : field;
-
-  db.query(`SELECT ${selectCols} FROM ${table} WHERE id = ?`, [id], (err, result) => {
+  db.query(`SELECT ${field} FROM ${table} WHERE id = ?`, [id], (err, result) => {
     if (err) return res.status(500).send(err.message);
-    if (!result || result.length === 0) {
+    if (!result || result.length === 0 || !result[0][field]) {
       return res.status(404).send('Not found');
     }
     
-    let data = result[0][field];
-
-    // Fallback if main image is empty but images array has photos
-    if ((!data || (Buffer.isBuffer(data) && data.length === 0)) && field === 'image' && result[0].images) {
-      let imagesData = result[0].images;
-      if (typeof imagesData === 'string') {
-        try {
-          imagesData = JSON.parse(imagesData);
-        } catch (e) {
-          imagesData = [];
-        }
-      }
-      if (Array.isArray(imagesData) && imagesData.length > 0 && imagesData[0]) {
-        data = imagesData[0];
-      }
-    }
-
-    if (!data) {
-      return res.status(404).send('Not found');
-    }
+    const data = result[0][field];
     
     if (Buffer.isBuffer(data) && data.length > 500) {
       if (mediaCache.size >= MAX_CACHE_SIZE) {
@@ -121,3 +96,4 @@ exports.getMedia = (req, res) => {
     serveBuffer(data);
   });
 };
+
