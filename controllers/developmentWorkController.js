@@ -5,10 +5,30 @@ const { uploadMedia } = require("../utils/cloudinary");
 
 function formatItem(item) {
   if (item && item.id) {
+    if (item.images) {
+      if (typeof item.images === 'string') {
+        try {
+          item.images = JSON.parse(item.images);
+        } catch(e) {
+          item.images = [];
+        }
+      }
+    } else {
+      item.images = [];
+    }
+
     if (item.has_image) {
       const url = item.image_url ? item.image_url.toString() : "";
       if (url && (url.startsWith('http') || url.startsWith('blob:'))) {
         item.image = url;
+      } else {
+        item.image = `/api/media/development_work/${item.id}/image`;
+      }
+    } else if (Array.isArray(item.images) && item.images.length > 0 && item.images[0]) {
+      // ✅ Fallback: जर main image null असेल पण images array मध्ये फोटो असेल
+      const firstImg = item.images[0];
+      if (typeof firstImg === 'string' && (firstImg.startsWith('http') || firstImg.startsWith('blob:') || firstImg.startsWith('data:image/'))) {
+        item.image = firstImg;
       } else {
         item.image = `/api/media/development_work/${item.id}/image`;
       }
@@ -23,7 +43,7 @@ function formatItem(item) {
         if (!item.image || item.image.startsWith('/api/')) item.image = url;
       } else {
         item.video = `/api/media/development_work/${item.id}/video`;
-        item.image = item.video;
+        if (!item.image) item.image = item.video;
       }
     } else if (item.hasOwnProperty('has_video')) {
       item.video = null;
@@ -33,18 +53,6 @@ function formatItem(item) {
     delete item.has_video;
     delete item.image_url;
     delete item.video_url;
-    
-    if (item.images) {
-      if (typeof item.images === 'string') {
-        try {
-          item.images = JSON.parse(item.images);
-        } catch(e) {
-          item.images = [];
-        }
-      }
-    } else {
-      item.images = [];
-    }
   }
   return item;
 }
@@ -80,7 +88,7 @@ async function translateDevelopmentWorkItem(item, targetLang) {
 exports.getAllDevelopmentWork = (req, res) => {
   const { page, limit, search, category, place, startDate, endDate, year } = req.query;
 
-  let sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM development_work WHERE 1=1";
+  let sql = "SELECT id, title, category, description, place, news_date, created_at, (LENGTH(image) > 0 OR (images IS NOT NULL AND LENGTH(images) > 5)) as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -215,7 +223,7 @@ exports.getAllDevelopmentWork = (req, res) => {
 
 // GET BY ID
 exports.getDevelopmentWorkById = (req, res) => {
-  db.query("SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work WHERE id=?", [req.params.id], async (err, result) => {
+  db.query("SELECT id, title, category, description, place, news_date, created_at, (LENGTH(image) > 0 OR (images IS NOT NULL AND LENGTH(images) > 5)) as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work WHERE id=?", [req.params.id], async (err, result) => {
     if (err) return res.json(err);
     if (Array.isArray(result)) result.forEach(formatItem);
     if (result.length === 0) return res.json(result);
@@ -335,7 +343,7 @@ exports.getCategories = (req, res) => {
 exports.getDevelopmentWorkByCategory = (req, res) => {
   const { category, search, page, limit } = req.query;
 
-  let sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work WHERE 1=1";
+  let sql = "SELECT id, title, category, description, place, news_date, created_at, (LENGTH(image) > 0 OR (images IS NOT NULL AND LENGTH(images) > 5)) as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -432,7 +440,7 @@ exports.getDevelopmentWorkByCategory = (req, res) => {
 exports.getTopDevelopmentWorkByCategory = (req, res) => {
   const { category } = req.query;
 
-  let sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work";
+  let sql = "SELECT id, title, category, description, place, news_date, created_at, (LENGTH(image) > 0 OR (images IS NOT NULL AND LENGTH(images) > 5)) as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work";
   const params = [];
 
   if (category) {
@@ -540,7 +548,7 @@ exports.getPlaces = (req, res) => {
 exports.getDevelopmentWorkByPlace = (req, res) => {
   const { place, search, page, limit } = req.query;
 
-  let sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM development_work WHERE 1=1";
+  let sql = "SELECT id, title, category, description, place, news_date, created_at, (LENGTH(image) > 0 OR (images IS NOT NULL AND LENGTH(images) > 5)) as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work WHERE 1=1";
   const params = [];
 
   if (place) {
@@ -639,9 +647,11 @@ exports.getDevelopmentWorkByPlace = (req, res) => {
 exports.getMapDevelopmentWorks = (req, res) => {
   let sql = `
     SELECT dw.id, dw.title, dw.category, dw.description, dw.place, dw.news_date, dw.created_at, 
-           LENGTH(dw.image) > 0 as has_image, LENGTH(dw.video) > 0 as has_video, 
+           (LENGTH(dw.image) > 0 OR (dw.images IS NOT NULL AND LENGTH(dw.images) > 5)) as has_image, 
+           LENGTH(dw.video) > 0 as has_video, 
            CASE WHEN LENGTH(dw.image) < 300 THEN CONVERT(dw.image, CHAR) ELSE NULL END as image_url, 
-           CASE WHEN LENGTH(dw.video) < 300 THEN CONVERT(dw.video, CHAR) ELSE NULL END as video_url
+           CASE WHEN LENGTH(dw.video) < 300 THEN CONVERT(dw.video, CHAR) ELSE NULL END as video_url,
+           dw.images
     FROM development_work dw
     WHERE dw.id = (
         SELECT id
@@ -675,7 +685,7 @@ exports.getPROfficeWorks = (req, res) => {
     keyword2 = '%थेरगाव%';
   }
 
-  const sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work WHERE category LIKE ? OR category LIKE ? OR title LIKE ? OR title LIKE ? ORDER BY COALESCE(news_date, created_at) DESC LIMIT ?";
+  const sql = "SELECT id, title, category, description, place, news_date, created_at, (LENGTH(image) > 0 OR (images IS NOT NULL AND LENGTH(images) > 5)) as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work WHERE category LIKE ? OR category LIKE ? OR title LIKE ? OR title LIKE ? ORDER BY COALESCE(news_date, created_at) DESC LIMIT ?";
   
   db.query(sql, [keyword1, keyword2, keyword1, keyword2, parseInt(limit)], async (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
