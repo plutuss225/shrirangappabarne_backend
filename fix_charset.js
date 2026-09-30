@@ -3,7 +3,8 @@ const db = require("./config/db");
 
 const queries = [
   "ALTER TABLE event_funding CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;",
-  "ALTER TABLE person_funding CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+  "ALTER TABLE person_funding CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;",
+  "ALTER TABLE contact_messages CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 ];
 
 const runQueries = async () => {

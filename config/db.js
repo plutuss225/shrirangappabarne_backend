@@ -7,10 +7,16 @@ const db = mysql.createPool({
   database: process.env.SQL_DATABASE || "shrirang",
   port: process.env.SQL_PORT || 3306,
   charset: "utf8mb4",
+  timezone: "+05:30",
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
   dateStrings: true
+});
+
+// Ensure every connection sets the session timezone to Indian Standard Time (IST +05:30)
+db.on("connection", (connection) => {
+  connection.query("SET time_zone = '+05:30'");
 });
 
 // Test connection
