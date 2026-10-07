@@ -1,5 +1,8 @@
-const express = require("express");
+﻿const express = require("express");
 const router = express.Router();
+const multer = require("multer");
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+
 const {
   getAllEventFunding,
   getEventFundingById,
@@ -7,7 +10,9 @@ const {
   updateEventFunding,
   deleteEventFunding,
   getUniquePlaces,
-  getUniqueDates
+  getUniqueDates,
+  uploadEventFundingExcel,
+  downloadEventFundingTemplate
 } = require("../controllers/eventFundingController");
 const authMiddleware = require("../middleware/authMiddleware");
 
@@ -19,6 +24,12 @@ router.get("/places", getUniquePlaces);
 
 // GET UNIQUE DATES
 router.get("/dates", getUniqueDates);
+
+// DOWNLOAD TEMPLATE (no token required or token optional)
+router.get("/template", downloadEventFundingTemplate);
+
+// UPLOAD EXCEL (token required)
+router.post("/upload-excel", authMiddleware, upload.single("file"), uploadEventFundingExcel);
 
 // GET EVENT FUNDING BY ID (no token required)
 router.get("/:id", getEventFundingById);

@@ -1,5 +1,6 @@
-const db = require("../db");
+﻿const db = require("../db");
 const { translateText, getTargetLanguage } = require("../utils/translator");
+const { extractPersonFundingRows, generatePersonTemplate } = require("../utils/excelHelper");
 
 exports.getAllPersonFunding = async (req, res) => {
   const { page, limit, search, place, date, startDate, endDate } = req.query;
@@ -32,7 +33,7 @@ exports.getAllPersonFunding = async (req, res) => {
     params.push(`%${place}%`);
   }
 
-  if (date) {
+  if (date && date !== "सर्व" && date !== "all") {
     baseSql += " AND funding_date = ?";
     params.push(date);
   }
@@ -47,7 +48,7 @@ exports.getAllPersonFunding = async (req, res) => {
     params.push(endDate);
   }
 
-  let sql = "SELECT *" + baseSql + " ORDER BY created_at DESC";
+  let sql = "SELECT *" + baseSql + " ORDER BY CASE WHEN funding_date IS NULL OR TRIM(funding_date) = '' THEN 1 ELSE 0 END, funding_date DESC, created_at DESC, id DESC";
 
   if (page && limit) {
     let countSql = "SELECT COUNT(*) as total" + baseSql;
@@ -142,4 +143,46 @@ exports.deletePersonFunding = (req, res) => {
     if (err) return res.status(500).json(err);
     res.json({ message: "Person funding deleted" });
   });
+};
+
+exports.uploadPersonFundingExcel = async (req, res) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ error: "Please select an Excel file (.xlsx, .xls, .csv) to upload" });
+    }
+
+    const rows = extractPersonFundingRows(req.file.buffer);
+    if (!rows || rows.length === 0) {
+      return res.status(400).json({ error: "No valid person funding records found in the uploaded file. Please check that columns like Person Name, Place, Address, Amount, Date are present." });
+    }
+
+    const values = rows.map(r => [r.person_name, r.place, r.address, r.amount, r.funding_date]);
+    const sql = "INSERT INTO person_funding (person_name, place, address, amount, funding_date) VALUES ?";
+
+    db.query(sql, [values], (err, result) => {
+      if (err) {
+        console.error("Database error importing person funding:", err);
+        return res.status(500).json({ error: "Failed to import person funding records: " + err.message });
+      }
+
+      return res.json({
+        message: `Successfully imported ${result.affectedRows || rows.length} person funding records`,
+        count: result.affectedRows || rows.length
+      });
+    });
+  } catch (error) {
+    console.error("Error processing Excel file:", error);
+    return res.status(500).json({ error: "Error processing Excel file: " + error.message });
+  }
+};
+
+exports.downloadPersonFundingTemplate = (req, res) => {
+  try {
+    const buffer = generatePersonTemplate();
+    res.setHeader("Content-Disposition", 'attachment; filename="person_funding_template.xlsx"');
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.send(buffer);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to generate template: " + error.message });
+  }
 };
