@@ -97,6 +97,7 @@ const eventRoute = require("./Routes/eventroute");
 const mediaRoute = require("./Routes/mediaroute");
 const eventFundingRoute = require("./Routes/eventFundingRoute");
 const personFundingRoute = require("./Routes/personFundingRoute");
+const callingRoute = require("./Routes/callingRoute");
 
 // Register Routes
 app.use("/api/admin", adminRoute);
@@ -110,6 +111,8 @@ app.use("/api/event", eventRoute);
 app.use("/api/media", mediaRoute);
 app.use("/api/event_funding", eventFundingRoute);
 app.use("/api/person_funding", personFundingRoute);
+app.use("/api/calling", callingRoute);
+app.use("/calling", callingRoute);
 
 
 // Also support routes without /api prefix just in case
