@@ -4,8 +4,10 @@ const {
   getLeads,
   getCategories,
   getCallingStats,
+  getCallerDetails,
   assignLeads,
   updateLeadStatus,
+  updateLead,
   uploadLeads,
   deleteLead,
   bulkDeleteLeads
@@ -21,8 +23,14 @@ router.get("/categories", authMiddleware, getCategories);
 // GET CALLING METRICS
 router.get("/stats", authMiddleware, getCallingStats);
 
+// GET SINGLE CALLER DETAILS & STATS
+router.get("/callers/:id", authMiddleware, getCallerDetails);
+
 // ASSIGN LEADS TO CALLER
 router.post("/assign", authMiddleware, assignLeads);
+
+// UPDATE FULL LEAD DATA (Admin)
+router.put("/leads/:id", authMiddleware, updateLead);
 
 // UPDATE CALL STATUS & NOTES
 router.put("/leads/:id/status", authMiddleware, updateLeadStatus);

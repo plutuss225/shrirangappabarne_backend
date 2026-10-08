@@ -311,9 +311,19 @@ exports.getCallingStats = async (req, res) => {
           a.id as caller_id,
           a.username,
           a.name,
+          a.phone,
+          a.role,
+          a.status,
           COUNT(c.id) as assigned_count,
           SUM(CASE WHEN c.call_status != 'pending' AND c.call_status IS NOT NULL THEN 1 ELSE 0 END) as completed_count,
-          SUM(CASE WHEN c.call_status = 'pending' OR c.call_status IS NULL THEN 1 ELSE 0 END) as pending_count
+          SUM(CASE WHEN c.call_status = 'pending' OR c.call_status IS NULL THEN 1 ELSE 0 END) as pending_count,
+          SUM(CASE WHEN c.call_status = 'birthday_wished' THEN 1 ELSE 0 END) as birthday_wished_count,
+          SUM(CASE WHEN c.call_status = 'called' THEN 1 ELSE 0 END) as called_count,
+          SUM(CASE WHEN c.call_status = 'not_reachable' THEN 1 ELSE 0 END) as not_reachable_count,
+          SUM(CASE WHEN c.call_status = 'invalid_number' THEN 1 ELSE 0 END) as invalid_count,
+          SUM(CASE WHEN c.call_status = 'in_progress' THEN 1 ELSE 0 END) as in_progress_count,
+          SUM(CASE WHEN c.call_status = 'resolved' THEN 1 ELSE 0 END) as resolved_count,
+          MAX(c.called_at) as last_called_at
         FROM admins a
         LEFT JOIN calling_leads c ON c.assigned_to = a.id ${category && category !== 'all' ? 'AND c.category = ?' : ''}
         WHERE a.role = 'employee' OR a.role = 'caller' OR a.role = 'admin'
@@ -386,6 +396,75 @@ exports.assignLeads = async (req, res) => {
     return res.status(400).json({ error: "Please provide either lead_ids array or bulk_count." });
   } catch (err) {
     console.error("Error in assignLeads:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
+// UPDATE FULL LEAD DATA (Admin Edit)
+exports.updateLead = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      name,
+      phone,
+      dob,
+      category,
+      visitor_id,
+      visit_date,
+      reference_by,
+      purpose,
+      address,
+      call_status,
+      call_notes,
+      assigned_to
+    } = req.body;
+
+    const parsed = parseDob(dob);
+    const cleanPhone = cleanPhoneNum(phone);
+
+    const sql = `
+      UPDATE calling_leads
+      SET 
+        name = ?,
+        phone = ?,
+        dob = ?,
+        dob_day = ?,
+        dob_month = ?,
+        category = COALESCE(?, category),
+        visitor_id = ?,
+        visit_date = ?,
+        reference_by = ?,
+        purpose = ?,
+        address = ?,
+        call_status = COALESCE(?, call_status),
+        call_notes = ?,
+        assigned_to = ?,
+        updated_at = NOW()
+      WHERE id = ?
+    `;
+
+    await queryPromise(sql, [
+      name ? String(name).trim() : null,
+      cleanPhone || phone,
+      parsed.dob || dob || null,
+      parsed.dob_day,
+      parsed.dob_month,
+      category ? String(category).trim() : null,
+      visitor_id || null,
+      visit_date || null,
+      reference_by || null,
+      purpose || null,
+      address || null,
+      call_status || null,
+      call_notes !== undefined ? call_notes : null,
+      assigned_to !== undefined && assigned_to !== "" && assigned_to !== null ? parseInt(assigned_to, 10) : null,
+      id
+    ]);
+
+    res.json({ message: "Lead updated successfully" });
+  } catch (err) {
+    console.error("Error updating lead:", err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -578,6 +657,65 @@ exports.bulkDeleteLeads = async (req, res) => {
 
     return res.status(400).json({ error: "Please provide lead_ids or category." });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
+// GET CALLER DETAILS & CALLING STATS
+exports.getCallerDetails = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const callerId = parseInt(id, 10);
+
+    const [adminRows, statsRows, categoryRows, recentCalls] = await Promise.all([
+      queryPromise("SELECT id, username, name, phone, role, status, created_at FROM admins WHERE id = ?", [callerId]),
+      queryPromise(`
+        SELECT 
+          COUNT(*) as total_assigned,
+          SUM(CASE WHEN call_status = 'pending' OR call_status IS NULL THEN 1 ELSE 0 END) as pending,
+          SUM(CASE WHEN call_status != 'pending' AND call_status IS NOT NULL THEN 1 ELSE 0 END) as completed,
+          SUM(CASE WHEN call_status = 'birthday_wished' THEN 1 ELSE 0 END) as birthday_wished,
+          SUM(CASE WHEN call_status = 'called' THEN 1 ELSE 0 END) as called,
+          SUM(CASE WHEN call_status = 'not_reachable' THEN 1 ELSE 0 END) as not_reachable,
+          SUM(CASE WHEN call_status = 'invalid_number' THEN 1 ELSE 0 END) as invalid_number,
+          SUM(CASE WHEN call_status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+          SUM(CASE WHEN call_status = 'resolved' THEN 1 ELSE 0 END) as resolved,
+          MAX(called_at) as last_called_at
+        FROM calling_leads 
+        WHERE assigned_to = ?
+      `, [callerId]),
+      queryPromise(`
+        SELECT 
+          category,
+          COUNT(*) as total,
+          SUM(CASE WHEN call_status != 'pending' AND call_status IS NOT NULL THEN 1 ELSE 0 END) as completed,
+          SUM(CASE WHEN call_status = 'pending' OR call_status IS NULL THEN 1 ELSE 0 END) as pending
+        FROM calling_leads 
+        WHERE assigned_to = ?
+        GROUP BY category
+      `, [callerId]),
+      queryPromise(`
+        SELECT id, name, phone, category, dob, call_status, call_notes, called_at
+        FROM calling_leads
+        WHERE assigned_to = ?
+        ORDER BY (CASE WHEN called_at IS NOT NULL THEN called_at ELSE created_at END) DESC
+        LIMIT 25
+      `, [callerId])
+    ]);
+
+    if (!adminRows || adminRows.length === 0) {
+      return res.status(404).json({ error: "Staff / Caller not found" });
+    }
+
+    res.json({
+      caller: adminRows[0],
+      stats: statsRows[0] || {},
+      categories: categoryRows || [],
+      recentLeads: recentCalls || []
+    });
+  } catch (err) {
+    console.error("Error in getCallerDetails:", err);
     res.status(500).json({ error: err.message });
   }
 };
