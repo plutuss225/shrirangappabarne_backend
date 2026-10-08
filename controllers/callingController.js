@@ -134,16 +134,17 @@ exports.getLeads = async (req, res) => {
     // Role-based visibility:
     const isCaller = req.user && (req.user.role === "employee" || req.user.role === "caller");
     
-    if (assigned_to !== undefined && assigned_to !== "" && assigned_to !== "all") {
+    if (isCaller) {
+      // Calling employee can ONLY view leads assigned to their account
+      conditions.push("c.assigned_to = ?");
+      params.push(req.user.id);
+    } else if (assigned_to !== undefined && assigned_to !== "" && assigned_to !== "all") {
       if (assigned_to === "unassigned") {
         conditions.push("(c.assigned_to IS NULL OR c.assigned_to = 0)");
       } else {
         conditions.push("c.assigned_to = ?");
         params.push(parseInt(assigned_to, 10));
       }
-    } else if (isCaller) {
-      conditions.push("(c.assigned_to = ? OR c.assigned_to IS NULL OR c.assigned_to = 0)");
-      params.push(req.user.id);
     }
 
     // Call status filter
@@ -226,6 +227,13 @@ exports.getLeads = async (req, res) => {
 // GET DISTINCT CATEGORIES
 exports.getCategories = async (req, res) => {
   try {
+    const isCaller = req.user && (req.user.role === "employee" || req.user.role === "caller");
+    let whereClause = "";
+    const params = [];
+    if (isCaller) {
+      whereClause = " WHERE assigned_to = ?";
+      params.push(req.user.id);
+    }
     const rows = await queryPromise(`
       SELECT 
         category, 
@@ -234,9 +242,10 @@ exports.getCategories = async (req, res) => {
         SUM(CASE WHEN call_status != 'pending' AND call_status IS NOT NULL THEN 1 ELSE 0 END) as completed_count,
         SUM(CASE WHEN assigned_to IS NULL OR assigned_to = 0 THEN 1 ELSE 0 END) as unassigned_count
       FROM calling_leads 
+      ${whereClause}
       GROUP BY category 
       ORDER BY total_count DESC
-    `);
+    `, params);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -247,12 +256,18 @@ exports.getCategories = async (req, res) => {
 exports.getCallingStats = async (req, res) => {
   try {
     const { category } = req.query;
-    let whereCat = "";
+    const isCaller = req.user && (req.user.role === "employee" || req.user.role === "caller");
+    const conditions = [];
     const params = [];
     if (category && category !== "all") {
-      whereCat = " WHERE category = ?";
+      conditions.push("category = ?");
       params.push(category);
     }
+    if (isCaller) {
+      conditions.push("assigned_to = ?");
+      params.push(req.user.id);
+    }
+    const whereCat = conditions.length > 0 ? " WHERE " + conditions.join(" AND ") : "";
 
     const [generalStats, birthdayStats, callerBreakdown] = await Promise.all([
       queryPromise(`
