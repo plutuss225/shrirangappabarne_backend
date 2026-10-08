@@ -164,6 +164,8 @@ exports.getLeads = async (req, res) => {
         conditions.push("c.dob_month = MONTH(NOW())");
       } else if (birthday_filter === "blank" || birthday_filter === "no_dob") {
         conditions.push("(c.dob IS NULL OR c.dob = '' OR c.dob_month IS NULL)");
+      } else if (birthday_filter === "unblank" || birthday_filter === "not_blank" || birthday_filter === "has_dob") {
+        conditions.push("(c.dob IS NOT NULL AND c.dob != '' AND c.dob_month IS NOT NULL)");
       } else if (birthday_filter.startsWith("month_")) {
         const monthNum = parseInt(birthday_filter.replace("month_", ""), 10);
         if (monthNum >= 1 && monthNum <= 12) {
@@ -273,6 +275,7 @@ exports.getCallingStats = async (req, res) => {
           SUM(CASE WHEN dob_month = MONTH(NOW()) AND dob_day = DAY(NOW()) THEN 1 ELSE 0 END) as today_birthdays,
           SUM(CASE WHEN dob_month = MONTH(NOW()) THEN 1 ELSE 0 END) as this_month_birthdays,
           SUM(CASE WHEN dob IS NULL OR dob = '' OR dob_month IS NULL THEN 1 ELSE 0 END) as blank_dob,
+          SUM(CASE WHEN dob IS NOT NULL AND dob != '' AND dob_month IS NOT NULL THEN 1 ELSE 0 END) as unblank_dob,
           SUM(CASE WHEN dob_month = 1 THEN 1 ELSE 0 END) as month_1,
           SUM(CASE WHEN dob_month = 2 THEN 1 ELSE 0 END) as month_2,
           SUM(CASE WHEN dob_month = 3 THEN 1 ELSE 0 END) as month_3,
