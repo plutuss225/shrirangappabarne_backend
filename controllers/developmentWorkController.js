@@ -80,7 +80,7 @@ async function translateDevelopmentWorkItem(item, targetLang) {
 exports.getAllDevelopmentWork = (req, res) => {
   const { page, limit, search, category, place, startDate, endDate, year } = req.query;
 
-  let sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM development_work WHERE 1=1";
+  let sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work WHERE 1=1";
   const params = [];
 
   if (category) {
@@ -239,16 +239,19 @@ exports.createDevelopmentWork = async (req, res) => {
   const { title, category, description, place, image, video, news_date, images } = req.body;
 
   let videoUrl = video;
-
   let uploadedImages = images && Array.isArray(images) ? images : [];
+  let primaryImage = image;
+  if (!primaryImage && uploadedImages.length > 0) {
+    primaryImage = uploadedImages[0];
+  }
 
   db.query(
     "INSERT INTO development_work (title, category, description, place, image, video, news_date, images) VALUES (?,?,?,?,?,?,?,?)",
-    [title, category || 'DevelopmentWork', description, place, base64ToBuffer(image), base64ToBuffer(videoUrl), news_date, JSON.stringify(uploadedImages)],
+    [title, category || 'DevelopmentWork', description, place, base64ToBuffer(primaryImage), base64ToBuffer(videoUrl), news_date, JSON.stringify(uploadedImages)],
     (err, result) => {
       if (err) return res.json(err);
       if (Array.isArray(result)) result.forEach(formatItem);
-    res.json({ message: "DevelopmentWork added", result });
+      res.json({ message: "DevelopmentWork added", result });
     }
   );
 };
@@ -260,11 +263,27 @@ exports.updateDevelopmentWork = async (req, res) => {
   let sql = "UPDATE development_work SET title=?, category=?, description=?, place=?, news_date=?";
   let params = [title, category || 'DevelopmentWork', description, place, news_date];
 
-  if (image !== undefined && !(typeof image === 'string' && image.startsWith('/api/'))) {
-    sql += ", image=?";
-    params.push(base64ToBuffer(image));
+  let uploadedImages = Array.isArray(images) ? images : [];
+  let primaryImage = image;
+  if (!primaryImage && uploadedImages.length > 0) {
+    primaryImage = uploadedImages[0];
   }
-  
+
+  if (primaryImage !== undefined) {
+    if (typeof primaryImage === 'string' && primaryImage.startsWith('/api/')) {
+      // If the first image in uploadedImages is a new base64 string, update image column with it
+      if (uploadedImages.length > 0 && typeof uploadedImages[0] === 'string' && !uploadedImages[0].startsWith('/api/')) {
+        sql += ", image=?";
+        params.push(base64ToBuffer(uploadedImages[0]));
+      }
+    } else {
+      sql += ", image=?";
+      params.push(base64ToBuffer(primaryImage));
+    }
+  } else if (uploadedImages.length === 0) {
+    sql += ", image=NULL";
+  }
+
   if (video !== undefined && !(typeof video === 'string' && (video.startsWith('/api/') || video.startsWith('http')))) {
     let videoUrl = video;
     sql += ", video=?";
@@ -272,7 +291,6 @@ exports.updateDevelopmentWork = async (req, res) => {
   }
 
   if (images !== undefined) {
-    let uploadedImages = Array.isArray(images) ? images : [];
     sql += ", images=?";
     params.push(JSON.stringify(uploadedImages));
   }
@@ -540,7 +558,7 @@ exports.getPlaces = (req, res) => {
 exports.getDevelopmentWorkByPlace = (req, res) => {
   const { place, search, page, limit } = req.query;
 
-  let sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url FROM development_work WHERE 1=1";
+  let sql = "SELECT id, title, category, description, place, news_date, created_at, LENGTH(image) > 0 as has_image, LENGTH(video) > 0 as has_video, CASE WHEN LENGTH(image) < 300 THEN CONVERT(image, CHAR) ELSE NULL END as image_url, CASE WHEN LENGTH(video) < 300 THEN CONVERT(video, CHAR) ELSE NULL END as video_url, images FROM development_work WHERE 1=1";
   const params = [];
 
   if (place) {
