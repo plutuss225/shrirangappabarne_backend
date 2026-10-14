@@ -105,6 +105,22 @@ exports.getAllNews = async (req, res) => {
     params.push(endDate);
   }
 
+  if (year && year !== "सर्व" && year !== "all") {
+    const y = parseInt(year, 10);
+    if (!isNaN(y)) {
+      sql += " AND YEAR(COALESCE(NULLIF(news_date, ''), created_at)) = ?";
+      params.push(y);
+    }
+  }
+
+  if (month && month !== "सर्व" && month !== "all") {
+    const m = parseInt(month, 10);
+    if (!isNaN(m) && m >= 1 && m <= 12) {
+      sql += " AND MONTH(COALESCE(NULLIF(news_date, ''), created_at)) = ?";
+      params.push(m);
+    }
+  }
+
   sql += " ORDER BY COALESCE(news_date, created_at) DESC, id DESC";
 
   if (page && limit) {
@@ -129,6 +145,22 @@ exports.getAllNews = async (req, res) => {
     if (endDate) {
       countSql += " AND DATE(news_date) <= ?";
       countParams.push(endDate);
+    }
+
+    if (year && year !== "सर्व" && year !== "all") {
+      const y = parseInt(year, 10);
+      if (!isNaN(y)) {
+        countSql += " AND YEAR(COALESCE(NULLIF(news_date, ''), created_at)) = ?";
+        countParams.push(y);
+      }
+    }
+
+    if (month && month !== "सर्व" && month !== "all") {
+      const m = parseInt(month, 10);
+      if (!isNaN(m) && m >= 1 && m <= 12) {
+        countSql += " AND MONTH(COALESCE(NULLIF(news_date, ''), created_at)) = ?";
+        countParams.push(m);
+      }
     }
 
     db.query(countSql, countParams, (countErr, countResult) => {
