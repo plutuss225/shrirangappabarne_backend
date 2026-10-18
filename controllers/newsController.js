@@ -67,7 +67,7 @@ async function translateNewsItem(item, targetLang) {
 
 // GET ALL NEWS
 exports.getAllNews = async (req, res) => {
-  let { page, limit, search, category, startDate, endDate } = req.query;
+  let { page, limit, search, category, startDate, endDate, year, month } = req.query;
 
   let searchEn = search;
   let searchMr = search;
