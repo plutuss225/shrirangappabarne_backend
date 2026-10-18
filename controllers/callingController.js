@@ -65,6 +65,11 @@ function mapRemarkToStatus(remark, category = "") {
     return "not_reachable";
   }
 
+  // Incoming Call in Excel remarks / notes
+  if (r.includes("incoming") || r.includes("incomming") || r.includes("आलेला कॉल") || r.includes("इनकमिंग")) {
+    return "incoming_call";
+  }
+
   // Callback in Excel remarks
   if (r.includes("callback") || r.includes("call back") || r.includes("पुन्हा")) {
     return "callback";
@@ -359,6 +364,7 @@ exports.getCallingStats = async (req, res) => {
           SUM(CASE WHEN call_status = 'callback' THEN 1 ELSE 0 END) as callback,
           SUM(CASE WHEN call_status = 'resolved' THEN 1 ELSE 0 END) as resolved,
           SUM(CASE WHEN call_status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+          SUM(CASE WHEN call_status = 'incoming_call' THEN 1 ELSE 0 END) as incoming_call,
           SUM(CASE WHEN call_status != 'pending' AND call_status IS NOT NULL AND call_status != '' THEN 1 ELSE 0 END) as total_dialed,
           SUM(CASE WHEN assigned_to IS NULL OR assigned_to = 0 THEN 1 ELSE 0 END) as unassigned,
           SUM(CASE WHEN assigned_to IS NOT NULL AND assigned_to > 0 THEN 1 ELSE 0 END) as assigned
@@ -413,6 +419,7 @@ exports.getCallingStats = async (req, res) => {
           SUM(CASE WHEN c.call_status = 'invalid_number' THEN 1 ELSE 0 END) as invalid_count,
           SUM(CASE WHEN c.call_status = 'callback' THEN 1 ELSE 0 END) as callback_count,
           SUM(CASE WHEN c.call_status = 'in_progress' THEN 1 ELSE 0 END) as in_progress_count,
+          SUM(CASE WHEN c.call_status = 'incoming_call' THEN 1 ELSE 0 END) as incoming_call_count,
           SUM(CASE WHEN c.call_status = 'resolved' THEN 1 ELSE 0 END) as resolved_count,
           MAX(c.called_at) as last_called_at
         FROM admins a
