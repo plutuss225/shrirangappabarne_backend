@@ -13,7 +13,9 @@ const queryPromise = (sql, params = []) => {
 // Helper to normalize phone number
 function normalizePhone(p) {
   if (!p) return "";
-  let digits = String(p).replace(/\D/g, "");
+  // In case of multiple phones like "9623478203 / 7028974987", take first phone
+  const first = String(p).split(/[\/,\&]/)[0];
+  let digits = first.replace(/\D/g, "");
   if (digits.length === 12 && digits.startsWith("91")) {
     digits = digits.slice(2);
   } else if (digits.length > 10) {
@@ -21,6 +23,8 @@ function normalizePhone(p) {
   }
   return digits;
 }
+
+const cleanPhoneNum = normalizePhone;
 
 // Helper to map remark text from Excel to structured call status
 function mapRemarkToStatus(remark) {
@@ -108,6 +112,7 @@ exports.getLeads = async (req, res) => {
   try {
     const {
       category,
+      sub_category,
       assigned_to,
       call_status,
       birthday_filter,
@@ -131,6 +136,12 @@ exports.getLeads = async (req, res) => {
       params.push(category);
     }
 
+    // Sub-category filter (e.g. Male / Female)
+    if (sub_category && sub_category !== "all") {
+      conditions.push("c.sub_category = ?");
+      params.push(sub_category);
+    }
+
     // Role-based visibility:
     const isCaller = req.user && (req.user.role === "employee" || req.user.role === "caller");
     
@@ -151,6 +162,8 @@ exports.getLeads = async (req, res) => {
     if (call_status && call_status !== "all") {
       if (call_status === "pending") {
         conditions.push("(c.call_status = 'pending' OR c.call_status IS NULL OR c.call_status = '')");
+      } else if (call_status === "completed") {
+        conditions.push("(c.call_status != 'pending' AND c.call_status IS NOT NULL AND c.call_status != '')");
       } else {
         conditions.push("c.call_status = ?");
         params.push(call_status);
@@ -179,8 +192,8 @@ exports.getLeads = async (req, res) => {
     // Text search
     if (search && search.trim()) {
       const q = `%${search.trim()}%`;
-      conditions.push("(c.name LIKE ? OR c.phone LIKE ? OR c.visitor_id LIKE ? OR c.address LIKE ? OR c.purpose LIKE ? OR c.excel_remarks LIKE ? OR c.call_notes LIKE ?)");
-      params.push(q, q, q, q, q, q, q);
+      conditions.push("(c.name LIKE ? OR c.phone LIKE ? OR c.visitor_id LIKE ? OR c.address LIKE ? OR c.purpose LIKE ? OR c.excel_remarks LIKE ? OR c.call_notes LIKE ? OR c.sub_category LIKE ?)");
+      params.push(q, q, q, q, q, q, q, q);
     }
 
     const whereClause = conditions.length > 0 ? " WHERE " + conditions.join(" AND ") : "";
@@ -224,30 +237,69 @@ exports.getLeads = async (req, res) => {
   }
 };
 
-// GET DISTINCT CATEGORIES
+// GET DISTINCT CATEGORIES (With Sub-categories breakdown, scoped according to assigned leads)
 exports.getCategories = async (req, res) => {
   try {
     const isCaller = req.user && (req.user.role === "employee" || req.user.role === "caller");
-    let whereClause = "";
+    const assignedParam = req.query.assigned_to || req.query.assigned || req.query.caller_id;
+
+    let whereConditions = ["category IS NOT NULL", "category != ''"];
     const params = [];
+
     if (isCaller) {
-      whereClause = " WHERE assigned_to = ?";
+      whereConditions.push("assigned_to = ?");
       params.push(req.user.id);
+    } else if (assignedParam && assignedParam !== "all") {
+      if (assignedParam === "unassigned") {
+        whereConditions.push("(assigned_to IS NULL OR assigned_to = 0)");
+      } else {
+        whereConditions.push("assigned_to = ?");
+        params.push(parseInt(assignedParam, 10));
+      }
     }
-    const rows = await queryPromise(`
-      SELECT 
-        category, 
-        COUNT(*) as total_count,
-        SUM(CASE WHEN call_status = 'pending' OR call_status IS NULL THEN 1 ELSE 0 END) as pending_count,
-        SUM(CASE WHEN call_status != 'pending' AND call_status IS NOT NULL THEN 1 ELSE 0 END) as completed_count,
-        SUM(CASE WHEN assigned_to IS NULL OR assigned_to = 0 THEN 1 ELSE 0 END) as unassigned_count
-      FROM calling_leads 
-      ${whereClause}
-      GROUP BY category 
-      ORDER BY total_count DESC
-    `, params);
-    res.json(rows);
+
+    const whereClause = " WHERE " + whereConditions.join(" AND ");
+
+    const [rows, subRows] = await Promise.all([
+      queryPromise(`
+        SELECT 
+          category, 
+          COUNT(*) as total_count,
+          SUM(CASE WHEN call_status = 'pending' OR call_status IS NULL THEN 1 ELSE 0 END) as pending_count,
+          SUM(CASE WHEN call_status != 'pending' AND call_status IS NOT NULL THEN 1 ELSE 0 END) as completed_count,
+          SUM(CASE WHEN assigned_to IS NULL OR assigned_to = 0 THEN 1 ELSE 0 END) as unassigned_count
+        FROM calling_leads 
+        ${whereClause}
+        GROUP BY category 
+        ORDER BY total_count DESC
+      `, params),
+
+      queryPromise(`
+        SELECT 
+          category, 
+          sub_category, 
+          COUNT(*) as count
+        FROM calling_leads
+        ${whereClause} AND sub_category IS NOT NULL AND sub_category != ''
+        GROUP BY category, sub_category
+        ORDER BY category, sub_category
+      `, params)
+    ]);
+
+    const subMap = {};
+    for (const s of subRows) {
+      if (!subMap[s.category]) subMap[s.category] = [];
+      subMap[s.category].push({ sub_category: s.sub_category, count: s.count });
+    }
+
+    const result = rows.map(r => ({
+      ...r,
+      sub_categories: subMap[r.category] || []
+    }));
+
+    res.json(result);
   } catch (err) {
+    console.error("Error in getCategories:", err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -255,25 +307,37 @@ exports.getCategories = async (req, res) => {
 // GET CALLING METRICS / STATS
 exports.getCallingStats = async (req, res) => {
   try {
-    const { category } = req.query;
+    const { category, sub_category } = req.query;
     const isCaller = req.user && (req.user.role === "employee" || req.user.role === "caller");
-    const conditions = [];
-    const params = [];
+    
+    // Category base conditions (WITHOUT sub_category filter)
+    const catConditions = [];
+    const catParams = [];
     if (category && category !== "all") {
-      conditions.push("category = ?");
-      params.push(category);
+      catConditions.push("category = ?");
+      catParams.push(category);
     }
     if (isCaller) {
-      conditions.push("assigned_to = ?");
-      params.push(req.user.id);
+      catConditions.push("assigned_to = ?");
+      catParams.push(req.user.id);
+    }
+    const catWhere = catConditions.length > 0 ? " WHERE " + catConditions.join(" AND ") : "";
+
+    // Subcategory-filtered conditions (WITH sub_category filter)
+    const conditions = [...catConditions];
+    const params = [...catParams];
+    if (sub_category && sub_category !== "all") {
+      conditions.push("sub_category = ?");
+      params.push(sub_category);
     }
     const whereCat = conditions.length > 0 ? " WHERE " + conditions.join(" AND ") : "";
 
-    const [generalStats, birthdayStats, callerBreakdown] = await Promise.all([
+    const [generalStats, catSubStats, birthdayStats, callerBreakdown] = await Promise.all([
       queryPromise(`
         SELECT 
           COUNT(*) as total,
           SUM(CASE WHEN call_status = 'pending' OR call_status IS NULL THEN 1 ELSE 0 END) as pending,
+          SUM(CASE WHEN call_status != 'pending' AND call_status IS NOT NULL AND call_status != '' THEN 1 ELSE 0 END) as completed,
           SUM(CASE WHEN call_status = 'called' THEN 1 ELSE 0 END) as called,
           SUM(CASE WHEN call_status = 'birthday_wished' THEN 1 ELSE 0 END) as birthday_wished,
           SUM(CASE WHEN call_status = 'not_reachable' THEN 1 ELSE 0 END) as not_reachable,
@@ -284,6 +348,15 @@ exports.getCallingStats = async (req, res) => {
           SUM(CASE WHEN assigned_to IS NOT NULL AND assigned_to > 0 THEN 1 ELSE 0 END) as assigned
         FROM calling_leads ${whereCat}
       `, params),
+
+      // Compute category-wide male, female and category_total counts so they NEVER drop or change when filtering by sub_category
+      queryPromise(`
+        SELECT 
+          COUNT(*) as category_total,
+          SUM(CASE WHEN sub_category = 'Male' OR sub_category = 'पुरुष' THEN 1 ELSE 0 END) as male_count,
+          SUM(CASE WHEN sub_category = 'Female' OR sub_category = 'महिला' THEN 1 ELSE 0 END) as female_count
+        FROM calling_leads ${catWhere}
+      `, catParams),
 
       queryPromise(`
         SELECT 
@@ -325,15 +398,25 @@ exports.getCallingStats = async (req, res) => {
           SUM(CASE WHEN c.call_status = 'resolved' THEN 1 ELSE 0 END) as resolved_count,
           MAX(c.called_at) as last_called_at
         FROM admins a
-        LEFT JOIN calling_leads c ON c.assigned_to = a.id ${category && category !== 'all' ? 'AND c.category = ?' : ''}
-        WHERE a.role = 'employee' OR a.role = 'caller' OR a.role = 'admin'
+        LEFT JOIN calling_leads c ON c.assigned_to = a.id ${category && category !== 'all' ? 'AND c.category = ?' : ''} ${sub_category && sub_category !== 'all' ? 'AND c.sub_category = ?' : ''}
+        WHERE (a.role = 'employee' OR a.role = 'caller' OR a.role = 'admin') AND (a.isDelete = 0 OR a.isDelete IS NULL) AND (a.isDeleted = 0 OR a.isDeleted IS NULL)
         GROUP BY a.id, a.username, a.name
         ORDER BY assigned_count DESC
-      `, category && category !== 'all' ? [category] : [])
+      `, [
+        ...(category && category !== 'all' ? [category] : []),
+        ...(sub_category && sub_category !== 'all' ? [sub_category] : [])
+      ])
     ]);
 
+    const combinedMetrics = {
+      ...(generalStats[0] || {}),
+      category_total: catSubStats[0]?.category_total ?? (generalStats[0]?.total || 0),
+      male_count: catSubStats[0]?.male_count || 0,
+      female_count: catSubStats[0]?.female_count || 0,
+    };
+
     res.json({
-      metrics: generalStats[0] || {},
+      metrics: combinedMetrics,
       birthdays: birthdayStats[0] || {},
       callers: callerBreakdown || []
     });
@@ -343,10 +426,10 @@ exports.getCallingStats = async (req, res) => {
   }
 };
 
-// ASSIGN LEADS TO CALLER
+// ASSIGN LEADS TO CALLER (Supports bulk assign with category & sub_category)
 exports.assignLeads = async (req, res) => {
   try {
-    const { lead_ids, assigned_to, bulk_count, category, filter_status } = req.body;
+    const { lead_ids, assigned_to, bulk_count, category, sub_category, filter_status } = req.body;
     const callerId = assigned_to ? parseInt(assigned_to, 10) : null;
 
     // Option 1: Assign specific selected lead IDs
@@ -359,7 +442,7 @@ exports.assignLeads = async (req, res) => {
       });
     }
 
-    // Option 2: Bulk assign next N unassigned leads in a category
+    // Option 2: Bulk assign next N unassigned leads in a category & sub_category
     if (bulk_count && parseInt(bulk_count, 10) > 0) {
       const count = parseInt(bulk_count, 10);
       let selectSql = "SELECT id FROM calling_leads WHERE (assigned_to IS NULL OR assigned_to = 0)";
@@ -368,6 +451,11 @@ exports.assignLeads = async (req, res) => {
       if (category && category !== "all") {
         selectSql += " AND category = ?";
         selectParams.push(category);
+      }
+
+      if (sub_category && sub_category !== "all") {
+        selectSql += " AND sub_category = ?";
+        selectParams.push(sub_category);
       }
 
       if (filter_status && filter_status !== "all") {
@@ -400,7 +488,6 @@ exports.assignLeads = async (req, res) => {
   }
 };
 
-
 // UPDATE FULL LEAD DATA (Admin Edit)
 exports.updateLead = async (req, res) => {
   try {
@@ -410,6 +497,7 @@ exports.updateLead = async (req, res) => {
       phone,
       dob,
       category,
+      sub_category,
       visitor_id,
       visit_date,
       reference_by,
@@ -420,8 +508,16 @@ exports.updateLead = async (req, res) => {
       assigned_to
     } = req.body;
 
+    const existing = await queryPromise("SELECT id, name, phone, call_status, assigned_to FROM calling_leads WHERE id = ?", [id]);
+    if (!existing || existing.length === 0) {
+      return res.status(404).json({ error: "Lead not found" });
+    }
+    const currentLead = existing[0];
+    const previousStatus = currentLead.call_status || "pending";
+    const statusChanged = Boolean(call_status && call_status !== previousStatus);
+
     const parsed = parseDob(dob);
-    const cleanPhone = cleanPhoneNum(phone);
+    const cleanPhone = normalizePhone(phone);
 
     const sql = `
       UPDATE calling_leads
@@ -432,6 +528,7 @@ exports.updateLead = async (req, res) => {
         dob_day = ?,
         dob_month = ?,
         category = COALESCE(?, category),
+        sub_category = COALESCE(?, sub_category),
         visitor_id = ?,
         visit_date = ?,
         reference_by = ?,
@@ -440,6 +537,7 @@ exports.updateLead = async (req, res) => {
         call_status = COALESCE(?, call_status),
         call_notes = ?,
         assigned_to = ?,
+        ${statusChanged ? 'called_at = NOW(),' : ''}
         updated_at = NOW()
       WHERE id = ?
     `;
@@ -451,6 +549,7 @@ exports.updateLead = async (req, res) => {
       parsed.dob_day,
       parsed.dob_month,
       category ? String(category).trim() : null,
+      sub_category ? String(sub_category).trim() : null,
       visitor_id || null,
       visit_date || null,
       reference_by || null,
@@ -462,14 +561,56 @@ exports.updateLead = async (req, res) => {
       id
     ]);
 
+    // If status changed or notes updated, insert audit log into call_logs
+    if (call_status || call_notes !== undefined) {
+      const newStatus = call_status || previousStatus;
+      if (statusChanged || call_notes !== undefined) {
+        try {
+          const callerId = (req.user && req.user.id) || (assigned_to ? parseInt(assigned_to, 10) : currentLead.assigned_to) || null;
+          let callerNumber = null;
+          let callerName = req.user?.name || req.user?.username || null;
+          if (callerId) {
+            const callerRows = await queryPromise("SELECT phone, name, username FROM admins WHERE id = ?", [callerId]);
+            if (callerRows && callerRows.length > 0) {
+              callerNumber = callerRows[0].phone || null;
+              callerName = callerRows[0].name || callerRows[0].username || callerName;
+            }
+          }
+
+          await queryPromise(
+            `INSERT INTO call_logs (
+              lead_id, caller_id, caller_number, customer_number,
+              previous_status, call_status, notes, raw_response, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+            [
+              id,
+              callerId,
+              callerNumber,
+              cleanPhone || currentLead.phone,
+              previousStatus,
+              newStatus,
+              call_notes !== undefined ? call_notes : null,
+              JSON.stringify({
+                source: "admin_lead_edit",
+                admin_id: req.user?.id || null,
+                timestamp: new Date().toISOString()
+              })
+            ]
+          );
+        } catch (logErr) {
+          console.error("Failed to insert call log during updateLead:", logErr);
+        }
+      }
+    }
+
     res.json({ message: "Lead updated successfully" });
   } catch (err) {
-    console.error("Error updating lead:", err);
+    console.error("Error in updateLead:", err);
     res.status(500).json({ error: err.message });
   }
 };
 
-// UPDATE CALL STATUS & NOTES FOR A LEAD
+// UPDATE CALL STATUS & NOTES (Logged by Callers / Staff)
 exports.updateLeadStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -479,6 +620,28 @@ exports.updateLeadStatus = async (req, res) => {
       return res.status(400).json({ error: "call_status is required" });
     }
 
+    // 1. Fetch current lead state
+    const existing = await queryPromise("SELECT id, name, phone, call_status, assigned_to FROM calling_leads WHERE id = ?", [id]);
+    if (!existing || existing.length === 0) {
+      return res.status(404).json({ error: "Lead not found" });
+    }
+    const currentLead = existing[0];
+    const previousStatus = currentLead.call_status || "pending";
+    const customerNumber = currentLead.phone || null;
+
+    // 2. Determine caller identity
+    const callerId = (req.user && req.user.id) || currentLead.assigned_to || null;
+    let callerNumber = null;
+    let callerName = req.user?.name || req.user?.username || null;
+    if (callerId) {
+      const callerRows = await queryPromise("SELECT phone, name, username FROM admins WHERE id = ?", [callerId]);
+      if (callerRows && callerRows.length > 0) {
+        callerNumber = callerRows[0].phone || null;
+        callerName = callerRows[0].name || callerRows[0].username || callerName;
+      }
+    }
+
+    // 3. Update calling_leads
     let sql = "UPDATE calling_leads SET call_status = ?, call_notes = ?, called_at = NOW()";
     const params = [call_status, call_notes !== undefined ? call_notes : null];
 
@@ -495,25 +658,61 @@ exports.updateLeadStatus = async (req, res) => {
       return res.status(404).json({ error: "Lead not found" });
     }
 
-    res.json({ message: "Call status updated successfully" });
+    // 4. Insert audit entry into call_logs
+    let logId = null;
+    try {
+      const logResult = await queryPromise(
+        `INSERT INTO call_logs (
+          lead_id, caller_id, caller_number, customer_number,
+          previous_status, call_status, notes, raw_response, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+        [
+          id,
+          callerId,
+          callerNumber,
+          customerNumber,
+          previousStatus,
+          call_status,
+          call_notes !== undefined ? call_notes : null,
+          JSON.stringify({
+            source: "dashboard_status_update",
+            caller_id: callerId,
+            caller_name: callerName,
+            timestamp: new Date().toISOString()
+          })
+        ]
+      );
+      logId = logResult.insertId;
+    } catch (logErr) {
+      console.error("Failed to insert into call_logs:", logErr);
+    }
+
+    res.json({
+      message: "Call status updated successfully",
+      log_id: logId,
+      previous_status: previousStatus,
+      call_status
+    });
   } catch (err) {
+    console.error("Error updating lead call status:", err);
     res.status(500).json({ error: err.message });
   }
 };
 
-// UPLOAD / IMPORT EXCEL DATA (With Automatic Deduplication & Remark-to-Status Mapping)
+// UPLOAD / IMPORT EXCEL DATA (Handles Marathi Constituency files & Standard reports)
 exports.uploadLeads = async (req, res) => {
   try {
-    const { category = "Birthday Calling", rows = [] } = req.body;
+    const { category = "Birthday Calling", sub_category = null, rows = [] } = req.body;
     const targetCategory = category.trim() || "Birthday Calling";
+    const targetSubCategory = sub_category ? sub_category.trim() : null;
 
     if (!Array.isArray(rows) || rows.length === 0) {
       return res.status(400).json({ error: "No rows provided for import." });
     }
 
-    // 1. Fetch all existing phone numbers and visitor_ids in this category to prevent duplicate entries
+    // 1. Fetch existing phones and visitor IDs in this category to prevent duplicate entries
     const existingRows = await queryPromise(
-      "SELECT phone, visitor_id FROM calling_leads WHERE category = ?",
+      "SELECT phone, visitor_id, sub_category FROM calling_leads WHERE category = ?",
       [targetCategory]
     );
 
@@ -527,55 +726,104 @@ exports.uploadLeads = async (req, res) => {
       }
       if (r.visitor_id) {
         const vid = String(r.visitor_id).trim();
-        if (vid) existingVisitorIds.add(vid);
+        const sub = r.sub_category ? String(r.sub_category).trim().toLowerCase() : "";
+        if (vid) existingVisitorIds.add(`${sub}::${vid}`);
       }
     }
 
-    // 2. Filter and deduplicate incoming rows (against DB and within the same file)
+    // 2. Filter and deduplicate incoming rows
     const seenInBatchPhones = new Set();
     const seenInBatchVisitorIds = new Set();
     const rowsToInsert = [];
     let duplicateCount = 0;
 
     for (const r of rows) {
-      const name = (r.name || r["Visitor Name"] || "").trim();
-      const rawPhone = String(r.phone || r["Phone no"] || r.phone_number || "").trim();
+      // Robust name detection across standard and Marathi formats
+      const name = (
+        r.name ||
+        r["Visitor Name"] ||
+        r["चिंचवड विधानसभा "] ||
+        r["चिंचवड विधानसभा"] ||
+        r["पिंपरी विधानसभा "] ||
+        r["पिंपरी विधानसभा"] ||
+        r["नाव"] ||
+        r["Name"] ||
+        ""
+      ).trim();
+
+      const rawPhone = String(
+        r.phone ||
+        r["Phone no"] ||
+        r.phone_number ||
+        r["संपर्क क्र."] ||
+        r["संपर्क क्र"] ||
+        r["संपर्क"] ||
+        r["Mobile"] ||
+        ""
+      ).trim();
+
       const normPhone = normalizePhone(rawPhone);
 
-      if (!name && !normPhone) continue;
+      const purpose = (r.purpose || r["Purpose"] || r["पद "] || r["पद"] || r["Designation"] || null);
+      const address = (r.address || r["Visitor Address"] || r["कार्यक्षेत्र"] || r["Address"] || null);
 
-      const rawVisitorId = r.visitor_id || r["Visitor ID"] || null;
+      // Still upload even if there is NO phone number (only skip if entire row has no name, purpose or address)
+      if (!name && !normPhone && !purpose && !address) continue;
+
+      const rawVisitorId = r.visitor_id || r["Visitor ID"] || r["अ.क्र."] || r["अ.क्र"] || r["Sr No"] || null;
       const visitorId = rawVisitorId ? String(rawVisitorId).trim() : null;
 
-      // Duplicate check
-      const isPhoneDuplicate = normPhone && (existingPhones.has(normPhone) || seenInBatchPhones.has(normPhone));
-      const isVidDuplicate = visitorId && (existingVisitorIds.has(visitorId) || seenInBatchVisitorIds.has(visitorId));
+      // Detect sub-category
+      let rowSubCategory = r.sub_category || targetSubCategory || null;
+      if (!rowSubCategory) {
+        const rowGender = String(r.gender || r["लिंग"] || r["पुरुष/महिला"] || "").trim().toLowerCase();
+        if (rowGender.includes("पुरुष") || rowGender.includes("male")) rowSubCategory = "Male";
+        else if (rowGender.includes("महिला") || rowGender.includes("female")) rowSubCategory = "Female";
+      }
+
+      const subKey = rowSubCategory ? rowSubCategory.toLowerCase() : "";
+      const vidKey = visitorId ? `${subKey}::${visitorId}` : "";
+
+      // Duplicate check: phone (if valid 10-digit) or visitorId scoped by subcategory
+      const isPhoneDuplicate = normPhone && normPhone.length === 10 && (existingPhones.has(normPhone) || seenInBatchPhones.has(normPhone));
+      const isVidDuplicate = vidKey && (existingVisitorIds.has(vidKey) || seenInBatchVisitorIds.has(vidKey));
 
       if (isPhoneDuplicate || isVidDuplicate) {
         duplicateCount++;
         continue;
       }
 
-      // Mark as seen in this batch
-      if (normPhone) seenInBatchPhones.add(normPhone);
-      if (visitorId) seenInBatchVisitorIds.add(visitorId);
+      // Mark seen
+      if (normPhone && normPhone.length === 10) seenInBatchPhones.add(normPhone);
+      if (vidKey) seenInBatchVisitorIds.add(vidKey);
 
-      const rawDob = r.dob || r["DOB"] || r["Date of Birth"] || r.__EMPTY;
+      const rawDob = r.dob || r["DOB"] || r["Date of Birth"] || null;
       const { dob, dob_day, dob_month } = parseDob(rawDob);
       const visitDate = r.visit_date || r["Visit Date"] || null;
       const referenceBy = r.reference_by || r["Reference By"] || null;
-      const purpose = r.purpose || r["Purpose"] || null;
-      const address = r.address || r["Visitor Address"] || null;
-      const remarks = r.remarks || r["Remarks"] || r.excel_remarks || null;
+      // Blank phone no when not provided
+      const finalPhone = (normPhone && normPhone.length === 10)
+        ? normPhone
+        : (rawPhone && rawPhone !== "N/A" && rawPhone !== "null" && rawPhone !== "undefined" ? rawPhone : "");
 
-      // Map Excel Remark to appropriate initial call status
+      const remarks = (
+        r.remarks ||
+        r["Remarks"] ||
+        r.excel_remarks ||
+        r["शेरा"] ||
+        (rawPhone.includes("/") ? `अतिरिक्त संपर्क: ${rawPhone}` : null) ||
+        null
+      );
+
+      // Map Excel Remark to initial call status
       const initialStatus = mapRemarkToStatus(remarks);
 
       rowsToInsert.push([
         targetCategory,
+        rowSubCategory,
         visitorId,
         name || "Unknown Visitor",
-        normPhone || rawPhone || "N/A",
+        finalPhone, // Blank phone no when missing
         dob,
         dob_day,
         dob_month,
@@ -605,7 +853,7 @@ exports.uploadLeads = async (req, res) => {
       const chunk = rowsToInsert.slice(i, i + chunkSize);
       const sql = `
         INSERT INTO calling_leads (
-          category, visitor_id, name, phone, dob, dob_day, dob_month,
+          category, sub_category, visitor_id, name, phone, dob, dob_day, dob_month,
           visit_date, reference_by, purpose, address, excel_remarks,
           assigned_to, call_status
         ) VALUES ?
@@ -615,7 +863,7 @@ exports.uploadLeads = async (req, res) => {
     }
 
     res.status(201).json({
-      message: `Successfully imported ${inserted} new leads into "${targetCategory}". (${duplicateCount} duplicates skipped)`,
+      message: `Successfully imported ${inserted} new leads into "${targetCategory}"${targetSubCategory ? ` (${targetSubCategory})` : ""}. (${duplicateCount} duplicates skipped)`,
       insertedCount: inserted,
       duplicateCount,
       totalProcessed: rows.length
@@ -626,16 +874,99 @@ exports.uploadLeads = async (req, res) => {
   }
 };
 
+// GET CALL LOGS FOR A SPECIFIC LEAD
+exports.getLeadCallLogs = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const sql = `
+      SELECT 
+        l.*,
+        a.username as caller_username,
+        a.name as caller_name
+      FROM call_logs l
+      LEFT JOIN admins a ON l.caller_id = a.id
+      WHERE l.lead_id = ?
+      ORDER BY l.created_at DESC
+    `;
+    const logs = await queryPromise(sql, [id]);
+    res.json({ logs });
+  } catch (err) {
+    console.error("Error in getLeadCallLogs:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// GET ALL CALL LOGS (Paginated audit trail)
+exports.getAllCallLogs = async (req, res) => {
+  try {
+    const { caller_id, call_status, page = 1, limit = 50 } = req.query;
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
+    const offset = (pageNum - 1) * limitNum;
+
+    const conditions = [];
+    const params = [];
+
+    if (caller_id) {
+      conditions.push("l.caller_id = ?");
+      params.push(caller_id);
+    }
+
+    if (call_status && call_status !== "all") {
+      conditions.push("l.call_status = ?");
+      params.push(call_status);
+    }
+
+    const whereClause = conditions.length > 0 ? " WHERE " + conditions.join(" AND ") : "";
+
+    const countRes = await queryPromise(`SELECT COUNT(*) as total FROM call_logs l${whereClause}`, params);
+    const total = countRes[0]?.total || 0;
+
+    const dataSql = `
+      SELECT 
+        l.*,
+        c.name as customer_name,
+        c.category as lead_category,
+        c.sub_category as lead_sub_category,
+        a.username as caller_username,
+        a.name as caller_name
+      FROM call_logs l
+      LEFT JOIN calling_leads c ON l.lead_id = c.id
+      LEFT JOIN admins a ON l.caller_id = a.id
+      ${whereClause}
+      ORDER BY l.created_at DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    const logs = await queryPromise(dataSql, [...params, limitNum, offset]);
+
+    res.json({
+      logs,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(total / limitNum)
+      }
+    });
+  } catch (err) {
+    console.error("Error in getAllCallLogs:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 // DELETE LEAD
 exports.deleteLead = async (req, res) => {
   try {
     const { id } = req.params;
+    await queryPromise("DELETE FROM call_logs WHERE lead_id = ?", [id]);
     const result = await queryPromise("DELETE FROM calling_leads WHERE id = ?", [id]);
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: "Lead not found" });
     }
-    res.json({ message: "Lead deleted successfully" });
+    res.json({ message: "Lead and associated call logs deleted successfully" });
   } catch (err) {
+    console.error("Error deleting lead:", err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -643,24 +974,23 @@ exports.deleteLead = async (req, res) => {
 // BULK DELETE LEADS
 exports.bulkDeleteLeads = async (req, res) => {
   try {
-    const { lead_ids, category } = req.body;
-
-    if (Array.isArray(lead_ids) && lead_ids.length > 0) {
-      const result = await queryPromise("DELETE FROM calling_leads WHERE id IN (?)", [lead_ids]);
-      return res.json({ message: `Deleted ${result.affectedRows} leads.` });
+    const { lead_ids } = req.body;
+    if (!Array.isArray(lead_ids) || lead_ids.length === 0) {
+      return res.status(400).json({ error: "No lead_ids provided" });
     }
 
-    if (category) {
-      const result = await queryPromise("DELETE FROM calling_leads WHERE category = ?", [category]);
-      return res.json({ message: `Deleted ${result.affectedRows} leads from category ${category}.` });
-    }
+    await queryPromise("DELETE FROM call_logs WHERE lead_id IN (?)", [lead_ids]);
+    const result = await queryPromise("DELETE FROM calling_leads WHERE id IN (?)", [lead_ids]);
 
-    return res.status(400).json({ error: "Please provide lead_ids or category." });
+    res.json({
+      message: `Successfully deleted ${result.affectedRows} leads.`,
+      deletedCount: result.affectedRows
+    });
   } catch (err) {
+    console.error("Error in bulkDeleteLeads:", err);
     res.status(500).json({ error: err.message });
   }
 };
-
 
 // GET CALLER DETAILS & CALLING STATS
 exports.getCallerDetails = async (req, res) => {
@@ -669,7 +999,10 @@ exports.getCallerDetails = async (req, res) => {
     const callerId = parseInt(id, 10);
 
     const [adminRows, statsRows, categoryRows, recentCalls] = await Promise.all([
-      queryPromise("SELECT id, username, name, phone, role, status, created_at FROM admins WHERE id = ?", [callerId]),
+      queryPromise(
+        "SELECT id, username, name, phone, '' as email, role, status, created_at FROM admins WHERE id = ?",
+        [callerId]
+      ),
       queryPromise(`
         SELECT 
           COUNT(*) as total_assigned,

@@ -10,9 +10,16 @@ const {
   updateLead,
   uploadLeads,
   deleteLead,
-  bulkDeleteLeads
+  bulkDeleteLeads,
+  getLeadCallLogs,
+  getAllCallLogs
 } = require("../controllers/callingController");
+const { updateMyStatus } = require("../controllers/adminController");
 const authMiddleware = require("../middleware/authMiddleware");
+
+// UPDATE OWN STATUS (Activate or Inactivate)
+router.put("/status", authMiddleware, updateMyStatus);
+router.patch("/status", authMiddleware, updateMyStatus);
 
 // GET ALL LEADS
 router.get("/leads", authMiddleware, getLeads);
@@ -37,6 +44,13 @@ router.put("/leads/:id/status", authMiddleware, updateLeadStatus);
 
 // UPLOAD / IMPORT EXCEL DATA
 router.post("/upload", authMiddleware, uploadLeads);
+
+
+// GET CALL LOGS FOR A SPECIFIC LEAD
+router.get("/leads/:id/logs", authMiddleware, getLeadCallLogs);
+
+// GET ALL CALL LOGS
+router.get("/logs", authMiddleware, getAllCallLogs);
 
 // DELETE LEAD
 router.delete("/leads/:id", authMiddleware, deleteLead);

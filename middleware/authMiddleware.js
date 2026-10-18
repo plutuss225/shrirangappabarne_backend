@@ -1,17 +1,39 @@
 const jwt = require("jsonwebtoken");
 
 const authMiddleware = (req, res, next) => {
-  // Get token from header
-  const authHeader = req.headers["authorization"] || req.headers["Authorization"];
+  let token = null;
 
-  if (!authHeader) {
-    return res.status(401).json({ message: "No token provided, authorization denied" });
+  // 1. Check Authorization header
+  const authHeader = req.headers["authorization"] || req.headers["Authorization"];
+  if (authHeader) {
+    if (authHeader.startsWith("Bearer ") || authHeader.startsWith("bearer ")) {
+      token = authHeader.split(" ")[1];
+    } else {
+      token = authHeader;
+    }
   }
 
-  // Support Bearer token format
-  let token = authHeader;
-  if (authHeader.startsWith("Bearer ") || authHeader.startsWith("bearer ")) {
-    token = authHeader.split(" ")[1];
+  // 2. Check cookies via cookie-parser
+  if (!token && req.cookies) {
+    token = req.cookies.auth_token || req.cookies.token || req.cookies["auth-token"];
+  }
+
+  // 3. Fallback raw cookie header parsing
+  if (!token && req.headers.cookie) {
+    const rawCookies = req.headers.cookie.split(";");
+    for (const cookie of rawCookies) {
+      const parts = cookie.trim().split("=");
+      const key = parts[0];
+      const val = parts.slice(1).join("=");
+      if (key === "auth_token" || key === "token" || key === "auth-token") {
+        token = decodeURIComponent(val);
+        break;
+      }
+    }
+  }
+
+  if (!token) {
+    return res.status(401).json({ message: "No token provided, authorization denied" });
   }
 
   try {

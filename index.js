@@ -1,6 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const cookieParser = require("cookie-parser");
 const bodyParser = require("body-parser");
 const db = require("./db"); // Load and connect to database
 const morgan = require("morgan");
@@ -18,7 +19,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
 
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes("*") || allowedOrigins.includes(origin) || allowedOrigins.length === 0) {
+    if (!origin || allowedOrigins.includes("*") || allowedOrigins.includes(origin) || allowedOrigins.length === 0 || /^http:\/\/localhost:\d+$/.test(origin) || /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) {
       callback(null, true);
     } else {
       callback(new Error("Not allowed by CORS"));
@@ -28,6 +29,9 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+
+// Cookie Parser Middleware
+app.use(cookieParser());
 
 // Log API hits
 app.use(morgan("dev"));
