@@ -27,13 +27,14 @@ function normalizePhone(p) {
 const cleanPhoneNum = normalizePhone;
 
 // Helper to map remark text from Excel to structured call status
-function mapRemarkToStatus(remark) {
+function mapRemarkToStatus(remark, category = "") {
   if (!remark) return "pending";
   const r = String(remark).trim().toLowerCase();
 
   // Completed / Done / Birthday Wished
   if (r === "done" || r === "donw" || r === "completed" || r.includes("wished") || r.includes("birthday")) {
-    return "birthday_wished";
+    const isBirthday = !category || String(category).toLowerCase().includes("birthday");
+    return isBirthday ? "birthday_wished" : "completed";
   }
 
   // Invalid / Wrong Number / Out of service
@@ -62,6 +63,11 @@ function mapRemarkToStatus(remark) {
     r === "off"
   ) {
     return "not_reachable";
+  }
+
+  // Callback in Excel remarks
+  if (r.includes("callback") || r.includes("call back") || r.includes("पुन्हा")) {
+    return "callback";
   }
 
   return "pending";
@@ -162,8 +168,16 @@ exports.getLeads = async (req, res) => {
     if (call_status && call_status !== "all") {
       if (call_status === "pending") {
         conditions.push("(c.call_status = 'pending' OR c.call_status IS NULL OR c.call_status = '')");
-      } else if (call_status === "completed") {
+      } else if (call_status === "all_completed" || call_status === "total_dialed") {
         conditions.push("(c.call_status != 'pending' AND c.call_status IS NOT NULL AND c.call_status != '')");
+      } else if (call_status === "completed") {
+        conditions.push("(c.call_status = 'completed' OR c.call_status = 'called' OR c.call_status = 'resolved' OR c.call_status = 'birthday_wished')");
+      } else if (call_status === "not_reachable_all") {
+        conditions.push("(c.call_status = 'not_reachable' OR c.call_status = 'invalid_number')");
+      } else if (call_status === "not_reachable") {
+        conditions.push("c.call_status = 'not_reachable'");
+      } else if (call_status === "invalid_number") {
+        conditions.push("c.call_status = 'invalid_number'");
       } else {
         conditions.push("c.call_status = ?");
         params.push(call_status);
@@ -336,14 +350,16 @@ exports.getCallingStats = async (req, res) => {
       queryPromise(`
         SELECT 
           COUNT(*) as total,
-          SUM(CASE WHEN call_status = 'pending' OR call_status IS NULL THEN 1 ELSE 0 END) as pending,
-          SUM(CASE WHEN call_status != 'pending' AND call_status IS NOT NULL AND call_status != '' THEN 1 ELSE 0 END) as completed,
+          SUM(CASE WHEN call_status = 'pending' OR call_status IS NULL OR call_status = '' THEN 1 ELSE 0 END) as pending,
+          SUM(CASE WHEN call_status = 'completed' THEN 1 ELSE 0 END) as completed,
           SUM(CASE WHEN call_status = 'called' THEN 1 ELSE 0 END) as called,
           SUM(CASE WHEN call_status = 'birthday_wished' THEN 1 ELSE 0 END) as birthday_wished,
           SUM(CASE WHEN call_status = 'not_reachable' THEN 1 ELSE 0 END) as not_reachable,
           SUM(CASE WHEN call_status = 'invalid_number' THEN 1 ELSE 0 END) as invalid_number,
+          SUM(CASE WHEN call_status = 'callback' THEN 1 ELSE 0 END) as callback,
           SUM(CASE WHEN call_status = 'resolved' THEN 1 ELSE 0 END) as resolved,
           SUM(CASE WHEN call_status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+          SUM(CASE WHEN call_status != 'pending' AND call_status IS NOT NULL AND call_status != '' THEN 1 ELSE 0 END) as total_dialed,
           SUM(CASE WHEN assigned_to IS NULL OR assigned_to = 0 THEN 1 ELSE 0 END) as unassigned,
           SUM(CASE WHEN assigned_to IS NOT NULL AND assigned_to > 0 THEN 1 ELSE 0 END) as assigned
         FROM calling_leads ${whereCat}
@@ -388,12 +404,14 @@ exports.getCallingStats = async (req, res) => {
           a.role,
           a.status,
           COUNT(c.id) as assigned_count,
-          SUM(CASE WHEN c.call_status != 'pending' AND c.call_status IS NOT NULL THEN 1 ELSE 0 END) as completed_count,
+          SUM(CASE WHEN c.call_status = 'completed' THEN 1 ELSE 0 END) as completed_count,
+          SUM(CASE WHEN c.call_status != 'pending' AND c.call_status IS NOT NULL AND c.call_status != '' THEN 1 ELSE 0 END) as total_dialed_count,
           SUM(CASE WHEN c.call_status = 'pending' OR c.call_status IS NULL THEN 1 ELSE 0 END) as pending_count,
           SUM(CASE WHEN c.call_status = 'birthday_wished' THEN 1 ELSE 0 END) as birthday_wished_count,
           SUM(CASE WHEN c.call_status = 'called' THEN 1 ELSE 0 END) as called_count,
           SUM(CASE WHEN c.call_status = 'not_reachable' THEN 1 ELSE 0 END) as not_reachable_count,
           SUM(CASE WHEN c.call_status = 'invalid_number' THEN 1 ELSE 0 END) as invalid_count,
+          SUM(CASE WHEN c.call_status = 'callback' THEN 1 ELSE 0 END) as callback_count,
           SUM(CASE WHEN c.call_status = 'in_progress' THEN 1 ELSE 0 END) as in_progress_count,
           SUM(CASE WHEN c.call_status = 'resolved' THEN 1 ELSE 0 END) as resolved_count,
           MAX(c.called_at) as last_called_at
@@ -537,7 +555,7 @@ exports.updateLead = async (req, res) => {
         call_status = COALESCE(?, call_status),
         call_notes = ?,
         assigned_to = ?,
-        ${statusChanged ? 'called_at = NOW(),' : ''}
+        ${statusChanged ? (call_status === 'pending' ? 'called_at = NULL,' : 'called_at = NOW(),') : ''}
         updated_at = NOW()
       WHERE id = ?
     `;
@@ -586,7 +604,7 @@ exports.updateLead = async (req, res) => {
               id,
               callerId,
               callerNumber,
-              cleanPhone || currentLead.phone,
+              cleanPhone || currentLead.phone || "N/A",
               previousStatus,
               newStatus,
               call_notes !== undefined ? call_notes : null,
@@ -627,7 +645,7 @@ exports.updateLeadStatus = async (req, res) => {
     }
     const currentLead = existing[0];
     const previousStatus = currentLead.call_status || "pending";
-    const customerNumber = currentLead.phone || null;
+    const customerNumber = currentLead.phone || "N/A";
 
     // 2. Determine caller identity
     const callerId = (req.user && req.user.id) || currentLead.assigned_to || null;
@@ -642,7 +660,12 @@ exports.updateLeadStatus = async (req, res) => {
     }
 
     // 3. Update calling_leads
-    let sql = "UPDATE calling_leads SET call_status = ?, call_notes = ?, called_at = NOW()";
+    let sql = "UPDATE calling_leads SET call_status = ?, call_notes = ?";
+    if (call_status === "pending") {
+      sql += ", called_at = NULL";
+    } else {
+      sql += ", called_at = NOW()";
+    }
     const params = [call_status, call_notes !== undefined ? call_notes : null];
 
     if (req.user && req.user.id) {
@@ -670,7 +693,7 @@ exports.updateLeadStatus = async (req, res) => {
           id,
           callerId,
           callerNumber,
-          customerNumber,
+          customerNumber || "N/A",
           previousStatus,
           call_status,
           call_notes !== undefined ? call_notes : null,
@@ -816,7 +839,7 @@ exports.uploadLeads = async (req, res) => {
       );
 
       // Map Excel Remark to initial call status
-      const initialStatus = mapRemarkToStatus(remarks);
+      const initialStatus = mapRemarkToStatus(remarks, targetCategory);
 
       rowsToInsert.push([
         targetCategory,
@@ -899,7 +922,7 @@ exports.getLeadCallLogs = async (req, res) => {
 // GET ALL CALL LOGS (Paginated audit trail)
 exports.getAllCallLogs = async (req, res) => {
   try {
-    const { caller_id, call_status, page = 1, limit = 50 } = req.query;
+    const { caller_id, call_status, category, search, page = 1, limit = 50 } = req.query;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
     const offset = (pageNum - 1) * limitNum;
@@ -907,7 +930,11 @@ exports.getAllCallLogs = async (req, res) => {
     const conditions = [];
     const params = [];
 
-    if (caller_id) {
+    const isCaller = req.user && (req.user.role === "employee" || req.user.role === "caller");
+    if (isCaller) {
+      conditions.push("l.caller_id = ?");
+      params.push(req.user.id);
+    } else if (caller_id && caller_id !== "all") {
       conditions.push("l.caller_id = ?");
       params.push(caller_id);
     }
@@ -917,9 +944,26 @@ exports.getAllCallLogs = async (req, res) => {
       params.push(call_status);
     }
 
+    if (category && category !== "all") {
+      conditions.push("c.category = ?");
+      params.push(category);
+    }
+
+    if (search && search.trim()) {
+      const q = `%${search.trim()}%`;
+      conditions.push("(c.name LIKE ? OR c.phone LIKE ? OR l.customer_number LIKE ? OR a.name LIKE ? OR a.username LIKE ? OR l.notes LIKE ?)");
+      params.push(q, q, q, q, q, q);
+    }
+
     const whereClause = conditions.length > 0 ? " WHERE " + conditions.join(" AND ") : "";
 
-    const countRes = await queryPromise(`SELECT COUNT(*) as total FROM call_logs l${whereClause}`, params);
+    const countRes = await queryPromise(`
+      SELECT COUNT(*) as total 
+      FROM call_logs l
+      LEFT JOIN calling_leads c ON l.lead_id = c.id
+      LEFT JOIN admins a ON l.caller_id = a.id
+      ${whereClause}
+    `, params);
     const total = countRes[0]?.total || 0;
 
     const dataSql = `
@@ -928,6 +972,7 @@ exports.getAllCallLogs = async (req, res) => {
         c.name as customer_name,
         c.category as lead_category,
         c.sub_category as lead_sub_category,
+        c.phone as lead_phone,
         a.username as caller_username,
         a.name as caller_name
       FROM call_logs l
@@ -1007,11 +1052,13 @@ exports.getCallerDetails = async (req, res) => {
         SELECT 
           COUNT(*) as total_assigned,
           SUM(CASE WHEN call_status = 'pending' OR call_status IS NULL THEN 1 ELSE 0 END) as pending,
-          SUM(CASE WHEN call_status != 'pending' AND call_status IS NOT NULL THEN 1 ELSE 0 END) as completed,
+          SUM(CASE WHEN call_status = 'completed' THEN 1 ELSE 0 END) as completed,
+          SUM(CASE WHEN call_status != 'pending' AND call_status IS NOT NULL AND call_status != '' THEN 1 ELSE 0 END) as total_dialed,
           SUM(CASE WHEN call_status = 'birthday_wished' THEN 1 ELSE 0 END) as birthday_wished,
           SUM(CASE WHEN call_status = 'called' THEN 1 ELSE 0 END) as called,
           SUM(CASE WHEN call_status = 'not_reachable' THEN 1 ELSE 0 END) as not_reachable,
           SUM(CASE WHEN call_status = 'invalid_number' THEN 1 ELSE 0 END) as invalid_number,
+          SUM(CASE WHEN call_status = 'callback' THEN 1 ELSE 0 END) as callback,
           SUM(CASE WHEN call_status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
           SUM(CASE WHEN call_status = 'resolved' THEN 1 ELSE 0 END) as resolved,
           MAX(called_at) as last_called_at
