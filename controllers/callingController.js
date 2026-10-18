@@ -176,7 +176,7 @@ exports.getLeads = async (req, res) => {
       } else if (call_status === "all_completed" || call_status === "total_dialed") {
         conditions.push("(c.call_status != 'pending' AND c.call_status IS NOT NULL AND c.call_status != '')");
       } else if (call_status === "completed") {
-        conditions.push("(c.call_status = 'completed' OR c.call_status = 'called' OR c.call_status = 'resolved' OR c.call_status = 'birthday_wished')");
+        conditions.push("(c.call_status = 'completed' OR c.call_status = 'called' OR c.call_status = 'resolved' OR c.call_status = 'incoming_call')");
       } else if (call_status === "not_reachable_all") {
         conditions.push("(c.call_status = 'not_reachable' OR c.call_status = 'invalid_number')");
       } else if (call_status === "not_reachable") {
@@ -326,7 +326,7 @@ exports.getCategories = async (req, res) => {
 // GET CALLING METRICS / STATS
 exports.getCallingStats = async (req, res) => {
   try {
-    const { category, sub_category } = req.query;
+    const { category, sub_category, assigned_to } = req.query;
     const isCaller = req.user && (req.user.role === "employee" || req.user.role === "caller");
     
     // Category base conditions (WITHOUT sub_category filter)
@@ -339,6 +339,13 @@ exports.getCallingStats = async (req, res) => {
     if (isCaller) {
       catConditions.push("assigned_to = ?");
       catParams.push(req.user.id);
+    } else if (assigned_to !== undefined && assigned_to !== "" && assigned_to !== "all") {
+      if (assigned_to === "unassigned") {
+        catConditions.push("(assigned_to IS NULL OR assigned_to = 0)");
+      } else {
+        catConditions.push("assigned_to = ?");
+        catParams.push(parseInt(assigned_to, 10));
+      }
     }
     const catWhere = catConditions.length > 0 ? " WHERE " + catConditions.join(" AND ") : "";
 
@@ -433,17 +440,35 @@ exports.getCallingStats = async (req, res) => {
       ])
     ]);
 
-    const combinedMetrics = {
-      ...(generalStats[0] || {}),
-      category_total: catSubStats[0]?.category_total ?? (generalStats[0]?.total || 0),
-      male_count: catSubStats[0]?.male_count || 0,
-      female_count: catSubStats[0]?.female_count || 0,
-    };
+    const rawMetrics = generalStats[0] || {};
+    const normalizedMetrics = {};
+    for (const [k, v] of Object.entries(rawMetrics)) {
+      normalizedMetrics[k] = v !== null && v !== undefined && !isNaN(Number(v)) ? Number(v) : v;
+    }
+    normalizedMetrics.category_total = catSubStats[0]?.category_total !== undefined ? Number(catSubStats[0].category_total) : (normalizedMetrics.total || 0);
+    normalizedMetrics.male_count = Number(catSubStats[0]?.male_count || 0);
+    normalizedMetrics.female_count = Number(catSubStats[0]?.female_count || 0);
+
+    const rawBirthdays = birthdayStats[0] || {};
+    const normalizedBirthdays = {};
+    for (const [k, v] of Object.entries(rawBirthdays)) {
+      normalizedBirthdays[k] = v !== null && v !== undefined && !isNaN(Number(v)) ? Number(v) : v;
+    }
+
+    const normalizedCallers = (callerBreakdown || []).map(c => {
+      const norm = { ...c };
+      for (const [k, v] of Object.entries(c)) {
+        if (k.endsWith('_count') || k === 'assigned_count') {
+          norm[k] = Number(v) || 0;
+        }
+      }
+      return norm;
+    });
 
     res.json({
-      metrics: combinedMetrics,
-      birthdays: birthdayStats[0] || {},
-      callers: callerBreakdown || []
+      metrics: normalizedMetrics,
+      birthdays: normalizedBirthdays,
+      callers: normalizedCallers
     });
   } catch (err) {
     console.error("Error getting stats:", err);
@@ -1067,6 +1092,7 @@ exports.getCallerDetails = async (req, res) => {
           SUM(CASE WHEN call_status = 'invalid_number' THEN 1 ELSE 0 END) as invalid_number,
           SUM(CASE WHEN call_status = 'callback' THEN 1 ELSE 0 END) as callback,
           SUM(CASE WHEN call_status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+          SUM(CASE WHEN call_status = 'incoming_call' THEN 1 ELSE 0 END) as incoming_call,
           SUM(CASE WHEN call_status = 'resolved' THEN 1 ELSE 0 END) as resolved,
           MAX(called_at) as last_called_at
         FROM calling_leads 
@@ -1095,10 +1121,23 @@ exports.getCallerDetails = async (req, res) => {
       return res.status(404).json({ error: "Staff / Caller not found" });
     }
 
+    const rawCallerStats = statsRows[0] || {};
+    const normalizedCallerStats = {};
+    for (const [k, v] of Object.entries(rawCallerStats)) {
+      normalizedCallerStats[k] = v !== null && v !== undefined && !isNaN(Number(v)) ? Number(v) : v;
+    }
+
+    const normalizedCategories = (categoryRows || []).map(cat => ({
+      ...cat,
+      total: Number(cat.total) || 0,
+      completed: Number(cat.completed) || 0,
+      pending: Number(cat.pending) || 0,
+    }));
+
     res.json({
       caller: adminRows[0],
-      stats: statsRows[0] || {},
-      categories: categoryRows || [],
+      stats: normalizedCallerStats,
+      categories: normalizedCategories,
       recentLeads: recentCalls || []
     });
   } catch (err) {
