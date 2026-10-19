@@ -13,123 +13,143 @@ exports.login = (req, res) => {
   }
 
   const rawDigits = identifier.replace(/\D/g, "");
-  const phone10 = rawDigits.length >= 10 ? rawDigits.slice(-10) : "";
+  const phone10 = rawDigits.length >= 10 ? rawDigits.slice(-10) : rawDigits;
 
-  // Query by username OR phone number
-  // Order active accounts before deleted accounts so an active account is matched if both exist
+  // Query all candidate users matching username OR phone number
+  // Order active accounts before deleted accounts
   const sql = `
     SELECT * FROM admins 
-    WHERE LOWER(username) = LOWER(?)
-       OR phone = ?
-       OR (? != '' AND phone = ?)
-       OR (? != '' AND phone LIKE ?)
+    WHERE LOWER(TRIM(username)) = LOWER(?)
+       OR TRIM(phone) = ?
+       OR (? != '' AND (
+            phone = ? 
+            OR phone = ?
+            OR phone = ?
+            OR phone LIKE ?
+            OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', ''), 10) = ?
+          ))
     ORDER BY (CASE WHEN (isDeleted = 1 OR isDelete = 1) THEN 1 ELSE 0 END) ASC, id DESC
-    LIMIT 1
   `;
   const params = [
     identifier,
     identifier,
     phone10,
     phone10,
-    phone10,
-    `%${phone10}`
+    `+91${phone10}`,
+    `0${phone10}`,
+    `%${phone10}`,
+    phone10
   ];
 
-  db.query(
-    sql,
-    params,
-    async (err, result) => {
-      if (err) return res.status(500).json(err);
+  db.query(sql, params, async (err, result) => {
+    if (err) return res.status(500).json(err);
 
-      if (result.length > 0) {
-        const user = result[0];
-        
-        // Rigorously check if account has been deleted (handles isDeleted / isDelete as 1 or true)
-        const isUserDeleted = (
-          user.isDeleted == 1 ||
-          user.isDelete == 1 ||
-          user.isDeleted === true ||
-          user.isDelete === true ||
-          String(user.isDeleted) === "1" ||
-          String(user.isDelete) === "1" ||
-          String(user.isDeleted) === "true" ||
-          String(user.isDelete) === "true"
-        );
+    if (!result || result.length === 0) {
+      return res.status(401).json({ 
+        message: "युझरनेम/मोबाईल नंबर किंवा पासवर्ड चुकीचा आहे. (Invalid username/phone or password)" 
+      });
+    }
 
-        if (isUserDeleted) {
-          return res.status(403).json({ 
-            message: "हे खाते प्रशासकाद्वारे हटवले गेले आहे. आपण लॉगिन करू शकत नाही. कृपया प्रशासकाशी संपर्क साधा (Account has been deleted by administrator. You cannot log in.)" 
-          });
-        }
+    let matchedUser = null;
+    let hadDeletedMatch = false;
 
-        // Check account active status
-        if (user.status && user.status === "inactive") {
-          if (user.role === "employee" || user.role === "caller") {
-            // Automatically reactivate calling employee on self-login only if not deleted
-            db.query("UPDATE admins SET status = 'active' WHERE id = ?", [user.id]);
-            user.status = "active";
-          } else {
-            return res.status(403).json({ message: "Account is inactive. Please contact administrator." });
-          }
-        }
+    // Check each candidate account against the provided password
+    // Correctly handles multiple users sharing a phone number or family accounts
+    for (const candidate of result) {
+      const isUserDeleted = (
+        candidate.isDeleted == 1 ||
+        candidate.isDelete == 1 ||
+        candidate.isDeleted === true ||
+        candidate.isDelete === true ||
+        String(candidate.isDeleted) === "1" ||
+        String(candidate.isDelete) === "1" ||
+        String(candidate.isDeleted) === "true" ||
+        String(candidate.isDelete) === "true"
+      );
 
-        // Check if stored password is a bcrypt hash
-        const isBcrypt = user.password && (user.password.startsWith("$2a$") || user.password.startsWith("$2b$") || user.password.startsWith("$2y$"));
-        let isMatch = false;
-
-        try {
-          if (isBcrypt) {
-            isMatch = await bcrypt.compare(password, user.password);
-          } else {
-            isMatch = (password === user.password);
-          }
-        } catch (compareErr) {
-          return res.status(500).json({ message: "Error verifying password" });
-        }
-
-        if (isMatch) {
-          // Generate JWT token including role & name
-          const userRole = user.role || "admin";
-          const token = jwt.sign(
-            { 
-              id: user.id, 
-              username: user.username,
-              role: userRole,
-              name: user.name || user.username
-            },
-            process.env.JWT_SECRET || "fallback_secret",
-            { expiresIn: "7d" }
-          );
-          // Set auth_token in cookie
-          const isProduction = process.env.NODE_ENV === "production";
-          res.cookie("auth_token", token, {
-            maxAge: 7 * 24 * 60 * 60 * 1000,
-            httpOnly: false,
-            sameSite: isProduction ? "none" : "lax",
-            secure: isProduction,
-            path: "/"
-          });
-
-          res.json({
-            message: "Login success", 
-            user: { 
-              id: user.id, 
-              username: user.username, 
-              role: userRole,
-              name: user.name || "",
-              phone: user.phone || "",
-              status: user.status || "active"
-            }, 
-            token 
-          });
+      // Verify password
+      const isBcrypt = candidate.password && (candidate.password.startsWith("$2a$") || candidate.password.startsWith("$2b$") || candidate.password.startsWith("$2y$"));
+      let isMatch = false;
+      try {
+        if (isBcrypt) {
+          isMatch = await bcrypt.compare(password, candidate.password);
         } else {
-          res.status(401).json({ message: "Invalid username or password" });
+          isMatch = (password === candidate.password);
         }
-      } else {
-        res.status(401).json({ message: "Invalid username or password" });
+      } catch (compareErr) {
+        // continue checking other candidates
+      }
+
+      if (isMatch) {
+        if (isUserDeleted) {
+          hadDeletedMatch = true;
+          continue; // check other candidates in case an active one exists
+        }
+        matchedUser = candidate;
+        break;
       }
     }
-  );
+
+    if (!matchedUser) {
+      if (hadDeletedMatch) {
+        return res.status(403).json({ 
+          message: "हे खाते प्रशासकाद्वारे हटवले गेले आहे. आपण लॉगिन करू शकत नाही. कृपया प्रशासकाशी संपर्क साधा (Account has been deleted by administrator. You cannot log in.)" 
+        });
+      }
+      return res.status(401).json({ 
+        message: "युझरनेम/मोबाईल नंबर किंवा पासवर्ड चुकीचा आहे. (Invalid username/phone or password)" 
+      });
+    }
+
+    const user = matchedUser;
+
+    // Check account active status
+    if (user.status && user.status === "inactive") {
+      if (user.role === "employee" || user.role === "caller") {
+        // Automatically reactivate calling employee on self-login only if not deleted
+        db.query("UPDATE admins SET status = 'active' WHERE id = ?", [user.id]);
+        user.status = "active";
+      } else {
+        return res.status(403).json({ message: "Account is inactive. Please contact administrator." });
+      }
+    }
+
+    // Generate JWT token including role & name
+    const userRole = user.role || "admin";
+    const token = jwt.sign(
+      { 
+        id: user.id, 
+        username: user.username,
+        role: userRole,
+        name: user.name || user.username
+      },
+      process.env.JWT_SECRET || "fallback_secret",
+      { expiresIn: "3650d" }
+    );
+    // Set auth_token in cookie
+    const isProduction = process.env.NODE_ENV === "production";
+    res.cookie("auth_token", token, {
+      maxAge: 10 * 365 * 24 * 60 * 60 * 1000,
+      expires: new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000),
+      httpOnly: false,
+      sameSite: isProduction ? "none" : "lax",
+      secure: isProduction,
+      path: "/"
+    });
+
+    res.json({
+      message: "Login success", 
+      user: { 
+        id: user.id, 
+        username: user.username, 
+        role: userRole,
+        name: user.name || "",
+        phone: user.phone || "",
+        status: user.status || "active"
+      }, 
+      token 
+    });
+  });
 };
 
 // CREATE ADMIN / EMPLOYEE USER
@@ -219,12 +239,13 @@ exports.employeeSignup = async (req, res) => {
               name: cleanName || cleanUsername
             },
             process.env.JWT_SECRET || "fallback_secret",
-            { expiresIn: "7d" }
+            { expiresIn: "3650d" }
           );
 
           const isProduction = process.env.NODE_ENV === "production";
           res.cookie("auth_token", token, {
-            maxAge: 7 * 24 * 60 * 60 * 1000,
+            maxAge: 10 * 365 * 24 * 60 * 60 * 1000,
+            expires: new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000),
             httpOnly: false,
             sameSite: isProduction ? "none" : "lax",
             secure: isProduction,
