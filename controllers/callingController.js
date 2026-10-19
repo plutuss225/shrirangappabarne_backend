@@ -1156,3 +1156,174 @@ exports.getCallerDetails = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+
+// ==========================================================
+// CALL RECORDINGS (Stored directly in MySQL Database LONGBLOB)
+// Strictly no Cloudinary or third-party service used!
+// ==========================================================
+
+// 1. Upload audio recording and store binary directly in MySQL
+exports.uploadCallRecording = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { log_id } = req.body;
+    const file = req.file;
+
+    if (!file || !file.buffer) {
+      return res.status(400).json({ error: "कोणतीही ऑडिओ फाईल सापडली नाही (No audio file provided)" });
+    }
+
+    // Verify lead exists
+    const leads = await queryPromise("SELECT id, name, phone, assigned_to FROM calling_leads WHERE id = ?", [id]);
+    if (!leads || leads.length === 0) {
+      return res.status(404).json({ error: "Lead not found" });
+    }
+    const lead = leads[0];
+    const callerId = (req.user && req.user.id) || lead.assigned_to || null;
+
+    // Insert directly into MySQL LONGBLOB (no external storage)
+    const insertResult = await queryPromise(
+      `INSERT INTO call_recordings (lead_id, log_id, caller_id, file_name, mime_type, file_size, audio_data, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        id,
+        log_id ? parseInt(log_id, 10) : null,
+        callerId,
+        file.originalname || `recording_lead_${id}_${Date.now()}.mp3`,
+        file.mimetype || "audio/mpeg",
+        file.size,
+        file.buffer
+      ]
+    );
+
+    const recordingId = insertResult.insertId;
+    const recordingUrl = `/api/calling/recordings/${recordingId}`;
+
+    // Update calling_leads table
+    await queryPromise("UPDATE calling_leads SET call_recording_url = ? WHERE id = ?", [recordingUrl, id]);
+
+    // Update associated call_log if exists
+    if (log_id) {
+      await queryPromise("UPDATE call_logs SET recording_url = ? WHERE id = ?", [recordingUrl, log_id]);
+    } else {
+      await queryPromise(
+        "UPDATE call_logs SET recording_url = ? WHERE lead_id = ? ORDER BY id DESC LIMIT 1",
+        [recordingUrl, id]
+      );
+    }
+
+    res.json({
+      success: true,
+      message: "कॉल रेकॉर्डिंग यशस्वीरित्या SQL डेटाबेसमध्ये सेव्ह केली! (Call recording saved in SQL database)",
+      recording: {
+        id: recordingId,
+        lead_id: Number(id),
+        file_name: file.originalname,
+        mime_type: file.mimetype,
+        file_size: file.size,
+        url: recordingUrl,
+        created_at: new Date().toISOString()
+      }
+    });
+  } catch (err) {
+    console.error("Error in uploadCallRecording:", err);
+    res.status(500).json({ error: "कॉल रेकॉर्डिंग सेव्ह करताना त्रुटी आली: " + err.message });
+  }
+};
+
+// 2. Stream audio file directly from MySQL database LONGBLOB
+exports.getRecordingAudio = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const rows = await queryPromise(
+      "SELECT id, file_name, mime_type, file_size, audio_data FROM call_recordings WHERE id = ?",
+      [id]
+    );
+
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ error: "Recording not found" });
+    }
+
+    const rec = rows[0];
+    const buffer = rec.audio_data;
+
+    if (!buffer || buffer.length === 0) {
+      return res.status(404).json({ error: "Audio data is empty" });
+    }
+
+    res.setHeader("Content-Type", rec.mime_type || "audio/mpeg");
+    res.setHeader("Content-Length", buffer.length);
+    res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(rec.file_name || 'recording.mp3')}"`);
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+
+    return res.end(buffer);
+  } catch (err) {
+    console.error("Error in getRecordingAudio:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// 3. Get latest recording metadata for a specific lead
+exports.getLeadRecordingMeta = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const rows = await queryPromise(
+      `SELECT id, lead_id, caller_id, file_name, mime_type, file_size, created_at
+       FROM call_recordings
+       WHERE lead_id = ?
+       ORDER BY id DESC
+       LIMIT 1`,
+      [id]
+    );
+
+    if (!rows || rows.length === 0) {
+      return res.json({ has_recording: false, recording: null });
+    }
+
+    const rec = rows[0];
+    res.json({
+      has_recording: true,
+      recording: {
+        id: rec.id,
+        lead_id: rec.lead_id,
+        caller_id: rec.caller_id,
+        file_name: rec.file_name,
+        mime_type: rec.mime_type,
+        file_size: rec.file_size,
+        url: `/api/calling/recordings/${rec.id}`,
+        created_at: rec.created_at
+      }
+    });
+  } catch (err) {
+    console.error("Error in getLeadRecordingMeta:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// 4. Delete recording
+exports.deleteRecording = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const recRows = await queryPromise("SELECT lead_id FROM call_recordings WHERE id = ?", [id]);
+    if (!recRows || recRows.length === 0) {
+      return res.status(404).json({ error: "Recording not found" });
+    }
+
+    const leadId = recRows[0].lead_id;
+    await queryPromise("DELETE FROM call_recordings WHERE id = ?", [id]);
+
+    const remaining = await queryPromise(
+      "SELECT id FROM call_recordings WHERE lead_id = ? ORDER BY id DESC LIMIT 1",
+      [leadId]
+    );
+    const nextUrl = remaining && remaining.length > 0 ? `/api/calling/recordings/${remaining[0].id}` : null;
+    await queryPromise("UPDATE calling_leads SET call_recording_url = ? WHERE id = ?", [nextUrl, leadId]);
+
+    res.json({ success: true, message: "Recording deleted successfully" });
+  } catch (err) {
+    console.error("Error in deleteRecording:", err);
+    res.status(500).json({ error: err.message });
+  }
+};

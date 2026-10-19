@@ -12,8 +12,17 @@ const {
   deleteLead,
   bulkDeleteLeads,
   getLeadCallLogs,
-  getAllCallLogs
+  getAllCallLogs,
+  uploadCallRecording,
+  getRecordingAudio,
+  getLeadRecordingMeta,
+  deleteRecording
 } = require("../controllers/callingController");
+const multer = require("multer");
+const recordingUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 35 * 1024 * 1024 }
+});
 const { updateMyStatus } = require("../controllers/adminController");
 const authMiddleware = require("../middleware/authMiddleware");
 
@@ -57,5 +66,12 @@ router.delete("/leads/:id", authMiddleware, deleteLead);
 
 // BULK DELETE LEADS
 router.post("/leads/bulk-delete", authMiddleware, bulkDeleteLeads);
+
+
+// CALL RECORDINGS ROUTES (Direct SQL Database storage)
+router.post("/leads/:id/recording", authMiddleware, recordingUpload.single("recording"), uploadCallRecording);
+router.get("/recordings/:id", getRecordingAudio);
+router.get("/leads/:id/recording", authMiddleware, getLeadRecordingMeta);
+router.delete("/recordings/:id", authMiddleware, deleteRecording);
 
 module.exports = router;
