@@ -176,7 +176,7 @@ exports.getLeads = async (req, res) => {
       } else if (call_status === "all_completed" || call_status === "total_dialed") {
         conditions.push("(c.call_status != 'pending' AND c.call_status IS NOT NULL AND c.call_status != '')");
       } else if (call_status === "completed") {
-        conditions.push("(c.call_status = 'completed' OR c.call_status = 'called' OR c.call_status = 'resolved' OR c.call_status = 'incoming_call')");
+        conditions.push("(c.call_status = 'completed' OR c.call_status = 'called' OR c.call_status = 'resolved' OR c.call_status = 'incoming_call' OR c.call_status = 'birthday_wished')");
       } else if (call_status === "not_reachable_all") {
         conditions.push("(c.call_status = 'not_reachable' OR c.call_status = 'invalid_number')");
       } else if (call_status === "not_reachable") {
@@ -419,7 +419,7 @@ exports.getCallingStats = async (req, res) => {
           COUNT(c.id) as assigned_count,
           SUM(CASE WHEN c.call_status = 'completed' THEN 1 ELSE 0 END) as completed_count,
           SUM(CASE WHEN c.call_status != 'pending' AND c.call_status IS NOT NULL AND c.call_status != '' THEN 1 ELSE 0 END) as total_dialed_count,
-          SUM(CASE WHEN c.call_status = 'pending' OR c.call_status IS NULL THEN 1 ELSE 0 END) as pending_count,
+          SUM(CASE WHEN c.id IS NOT NULL AND (c.call_status = 'pending' OR c.call_status IS NULL OR c.call_status = '') THEN 1 ELSE 0 END) as pending_count,
           SUM(CASE WHEN c.call_status = 'birthday_wished' THEN 1 ELSE 0 END) as birthday_wished_count,
           SUM(CASE WHEN c.call_status = 'called' THEN 1 ELSE 0 END) as called_count,
           SUM(CASE WHEN c.call_status = 'not_reachable' THEN 1 ELSE 0 END) as not_reachable_count,
@@ -1083,7 +1083,7 @@ exports.getCallerDetails = async (req, res) => {
       queryPromise(`
         SELECT 
           COUNT(*) as total_assigned,
-          SUM(CASE WHEN call_status = 'pending' OR call_status IS NULL THEN 1 ELSE 0 END) as pending,
+          SUM(CASE WHEN call_status = 'pending' OR call_status IS NULL OR call_status = '' THEN 1 ELSE 0 END) as pending,
           SUM(CASE WHEN call_status = 'completed' THEN 1 ELSE 0 END) as completed,
           SUM(CASE WHEN call_status != 'pending' AND call_status IS NOT NULL AND call_status != '' THEN 1 ELSE 0 END) as total_dialed,
           SUM(CASE WHEN call_status = 'birthday_wished' THEN 1 ELSE 0 END) as birthday_wished,
@@ -1094,6 +1094,7 @@ exports.getCallerDetails = async (req, res) => {
           SUM(CASE WHEN call_status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
           SUM(CASE WHEN call_status = 'incoming_call' THEN 1 ELSE 0 END) as incoming_call,
           SUM(CASE WHEN call_status = 'resolved' THEN 1 ELSE 0 END) as resolved,
+          SUM(CASE WHEN call_status IN ('completed', 'called', 'resolved', 'incoming_call', 'birthday_wished') THEN 1 ELSE 0 END) as connected,
           MAX(called_at) as last_called_at
         FROM calling_leads 
         WHERE assigned_to = ?
@@ -1102,8 +1103,13 @@ exports.getCallerDetails = async (req, res) => {
         SELECT 
           category,
           COUNT(*) as total,
-          SUM(CASE WHEN call_status != 'pending' AND call_status IS NOT NULL THEN 1 ELSE 0 END) as completed,
-          SUM(CASE WHEN call_status = 'pending' OR call_status IS NULL THEN 1 ELSE 0 END) as pending
+          SUM(CASE WHEN call_status != 'pending' AND call_status IS NOT NULL AND call_status != '' THEN 1 ELSE 0 END) as dialed,
+          SUM(CASE WHEN call_status IN ('completed', 'called', 'resolved', 'incoming_call', 'birthday_wished') THEN 1 ELSE 0 END) as connected,
+          SUM(CASE WHEN call_status = 'callback' THEN 1 ELSE 0 END) as callback,
+          SUM(CASE WHEN call_status = 'not_reachable' THEN 1 ELSE 0 END) as not_reachable,
+          SUM(CASE WHEN call_status = 'invalid_number' THEN 1 ELSE 0 END) as invalid_number,
+          SUM(CASE WHEN call_status = 'completed' THEN 1 ELSE 0 END) as completed,
+          SUM(CASE WHEN call_status = 'pending' OR call_status IS NULL OR call_status = '' THEN 1 ELSE 0 END) as pending
         FROM calling_leads 
         WHERE assigned_to = ?
         GROUP BY category
@@ -1128,8 +1134,13 @@ exports.getCallerDetails = async (req, res) => {
     }
 
     const normalizedCategories = (categoryRows || []).map(cat => ({
-      ...cat,
+      category: cat.category,
       total: Number(cat.total) || 0,
+      dialed: Number(cat.dialed) || 0,
+      connected: Number(cat.connected) || 0,
+      callback: Number(cat.callback) || 0,
+      not_reachable: Number(cat.not_reachable) || 0,
+      invalid_number: Number(cat.invalid_number) || 0,
       completed: Number(cat.completed) || 0,
       pending: Number(cat.pending) || 0,
     }));
