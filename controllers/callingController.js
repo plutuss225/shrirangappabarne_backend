@@ -131,10 +131,124 @@ function parseDob(val) {
   return { dob: str, dob_day: null, dob_month: null };
 }
 
+// GET ALL CAMPAIGNS (With leads & category breakdown)
+exports.getCampaigns = async (req, res) => {
+  try {
+    const isCaller = !req.user || (req.user.role !== "admin" && req.user.role !== "superadmin");
+    const callerId = req.user ? req.user.id : null;
+
+    let leadsSql = `
+      SELECT 
+        campaign,
+        COUNT(*) as total_leads,
+        COUNT(DISTINCT category) as category_count,
+        SUM(CASE WHEN call_status = 'pending' OR call_status IS NULL OR call_status = '' THEN 1 ELSE 0 END) as pending_leads,
+        SUM(CASE WHEN call_status != 'pending' AND call_status IS NOT NULL AND call_status != '' THEN 1 ELSE 0 END) as completed_leads,
+        SUM(CASE WHEN assigned_to IS NOT NULL AND assigned_to != 0 THEN 1 ELSE 0 END) as assigned_leads,
+        SUM(CASE WHEN assigned_to IS NULL OR assigned_to = 0 THEN 1 ELSE 0 END) as unassigned_leads
+      FROM calling_leads
+    `;
+    const leadsParams = [];
+
+    if (isCaller && callerId) {
+      leadsSql += " WHERE assigned_to = ?";
+      leadsParams.push(callerId);
+    }
+    leadsSql += " GROUP BY campaign";
+
+    const [campaigns, leadStats] = await Promise.all([
+      queryPromise("SELECT * FROM calling_campaigns ORDER BY id ASC"),
+      queryPromise(leadsSql, leadsParams)
+    ]);
+
+    const statsMap = {};
+    for (const s of leadStats) {
+      if (s.campaign) {
+        statsMap[s.campaign] = {
+          total_leads: Number(s.total_leads) || 0,
+          category_count: Number(s.category_count) || 0,
+          pending_leads: Number(s.pending_leads) || 0,
+          completed_leads: Number(s.completed_leads) || 0,
+          assigned_leads: Number(s.assigned_leads) || 0,
+          unassigned_leads: Number(s.unassigned_leads) || 0
+        };
+      }
+    }
+
+    // Ensure default campaign 'दिवाळी फराळ & दीप महोत्सव' is present if not in table
+    const defaultCampName = "दिवाळी फराळ & दीप महोत्सव";
+    let hasDefault = campaigns.some(c => c.name === defaultCampName);
+    if (!hasDefault) {
+      campaigns.unshift({
+        id: 1,
+        name: defaultCampName,
+        description: "दिवाळी फराळ व दीप महोत्सव कॉलिंग अभियान",
+        status: "active"
+      });
+    }
+
+    const result = campaigns.map(c => {
+      const stats = statsMap[c.name] || {
+        total_leads: 0,
+        category_count: 0,
+        pending_leads: 0,
+        completed_leads: 0,
+        assigned_leads: 0,
+        unassigned_leads: 0
+      };
+      return {
+        ...c,
+        ...stats
+      };
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error("Error in getCampaigns:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// CREATE NEW CAMPAIGN (Admin)
+exports.createCampaign = async (req, res) => {
+  try {
+    const { name, description = null, status = "active" } = req.body;
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: "Campaign name is required" });
+    }
+    const cleanName = String(name).trim();
+
+    // Check if exists
+    const existing = await queryPromise("SELECT id, name FROM calling_campaigns WHERE name = ?", [cleanName]);
+    if (existing && existing.length > 0) {
+      return res.status(400).json({ error: "A campaign with this name already exists." });
+    }
+
+    const insertRes = await queryPromise(
+      "INSERT INTO calling_campaigns (name, description, status) VALUES (?, ?, ?)",
+      [cleanName, description ? String(description).trim() : null, status || "active"]
+    );
+
+    res.status(201).json({
+      message: "Campaign created successfully",
+      campaign: {
+        id: insertRes.insertId,
+        name: cleanName,
+        description,
+        status
+      }
+    });
+  } catch (err) {
+    console.error("Error in createCampaign:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 // GET ALL LEADS (Paginated & Filtered)
 exports.getLeads = async (req, res) => {
   try {
     const {
+      campaign,
       category,
       sub_category,
       assigned_to,
@@ -158,6 +272,12 @@ exports.getLeads = async (req, res) => {
     const conditions = [];
     const params = [];
 
+    // Campaign filter
+    if (campaign && campaign !== "all") {
+      conditions.push("c.campaign = ?");
+      params.push(campaign);
+    }
+
     // Category filter
     if (category && category !== "all") {
       conditions.push("c.category = ?");
@@ -171,7 +291,7 @@ exports.getLeads = async (req, res) => {
     }
 
     // Role-based visibility:
-    const isCaller = req.user && (req.user.role === "employee" || req.user.role === "caller");
+    const isCaller = !req.user || (req.user.role !== "admin" && req.user.role !== "superadmin");
     
     if (isCaller) {
       // Calling employee can ONLY view leads assigned to their account
@@ -180,6 +300,8 @@ exports.getLeads = async (req, res) => {
     } else if (assigned_to !== undefined && assigned_to !== "" && assigned_to !== "all") {
       if (assigned_to === "unassigned") {
         conditions.push("(c.assigned_to IS NULL OR c.assigned_to = 0)");
+      } else if (assigned_to === "assigned") {
+        conditions.push("(c.assigned_to IS NOT NULL AND c.assigned_to > 0)");
       } else {
         conditions.push("c.assigned_to = ?");
         params.push(parseInt(assigned_to, 10));
@@ -366,14 +488,21 @@ exports.getLeads = async (req, res) => {
   }
 };
 
-// GET DISTINCT CATEGORIES (With Sub-categories breakdown, scoped according to assigned leads)
+// GET DISTINCT CATEGORIES (With Sub-categories breakdown, scoped according to assigned leads & campaign)
 exports.getCategories = async (req, res) => {
   try {
-    const isCaller = req.user && (req.user.role === "employee" || req.user.role === "caller");
+    const isCaller = !req.user || (req.user.role !== "admin" && req.user.role !== "superadmin");
     const assignedParam = req.query.assigned_to || req.query.assigned || req.query.caller_id;
+    const { campaign } = req.query;
 
     let whereConditions = ["category IS NOT NULL", "category != ''"];
     const params = [];
+
+    // Campaign filter
+    if (campaign && campaign !== "all") {
+      whereConditions.push("campaign = ?");
+      params.push(campaign);
+    }
 
     if (isCaller) {
       whereConditions.push("assigned_to = ?");
@@ -381,6 +510,8 @@ exports.getCategories = async (req, res) => {
     } else if (assignedParam && assignedParam !== "all") {
       if (assignedParam === "unassigned") {
         whereConditions.push("(assigned_to IS NULL OR assigned_to = 0)");
+      } else if (assignedParam === "assigned") {
+        whereConditions.push("(assigned_to IS NOT NULL AND assigned_to > 0)");
       } else {
         whereConditions.push("assigned_to = ?");
         params.push(parseInt(assignedParam, 10));
@@ -396,6 +527,7 @@ exports.getCategories = async (req, res) => {
           COUNT(*) as total_count,
           SUM(CASE WHEN call_status = 'pending' OR call_status IS NULL THEN 1 ELSE 0 END) as pending_count,
           SUM(CASE WHEN call_status != 'pending' AND call_status IS NOT NULL THEN 1 ELSE 0 END) as completed_count,
+          SUM(CASE WHEN assigned_to IS NOT NULL AND assigned_to != 0 THEN 1 ELSE 0 END) as assigned_count,
           SUM(CASE WHEN assigned_to IS NULL OR assigned_to = 0 THEN 1 ELSE 0 END) as unassigned_count
         FROM calling_leads 
         ${whereClause}
@@ -437,6 +569,7 @@ exports.getCategories = async (req, res) => {
 exports.getCallingStats = async (req, res) => {
   try {
     const {
+      campaign,
       category,
       sub_category,
       assigned_to,
@@ -445,11 +578,15 @@ exports.getCallingStats = async (req, res) => {
       end_date,
       date_field = "called"
     } = req.query;
-    const isCaller = req.user && (req.user.role === "employee" || req.user.role === "caller");
+    const isCaller = !req.user || (req.user.role !== "admin" && req.user.role !== "superadmin");
     
     // Category base conditions (WITHOUT sub_category filter)
     const catConditions = [];
     const catParams = [];
+    if (campaign && campaign !== "all") {
+      catConditions.push("campaign = ?");
+      catParams.push(campaign);
+    }
     if (category && category !== "all") {
       catConditions.push("category = ?");
       catParams.push(category);
@@ -460,6 +597,8 @@ exports.getCallingStats = async (req, res) => {
     } else if (assigned_to !== undefined && assigned_to !== "" && assigned_to !== "all") {
       if (assigned_to === "unassigned") {
         catConditions.push("(assigned_to IS NULL OR assigned_to = 0)");
+      } else if (assigned_to === "assigned") {
+        catConditions.push("(assigned_to IS NOT NULL AND assigned_to > 0)");
       } else {
         catConditions.push("assigned_to = ?");
         catParams.push(parseInt(assigned_to, 10));
@@ -517,6 +656,32 @@ exports.getCallingStats = async (req, res) => {
     }
     const whereCat = conditions.length > 0 ? " WHERE " + conditions.join(" AND ") : "";
 
+    const grandWhere = [];
+    let grandTotalParams = [];
+    if (campaign && campaign !== "all") {
+      grandWhere.push("campaign = ?");
+      grandTotalParams.push(campaign);
+    }
+    if (category && category !== "all") {
+      grandWhere.push("category = ?");
+      grandTotalParams.push(category);
+    }
+    if (isCaller) {
+      grandWhere.push("assigned_to = ?");
+      grandTotalParams.push(req.user.id);
+    } else if (assigned_to !== undefined && assigned_to !== "" && assigned_to !== "all") {
+      if (assigned_to === "unassigned") {
+        grandWhere.push("(assigned_to IS NULL OR assigned_to = 0)");
+      } else if (assigned_to === "assigned") {
+        grandWhere.push("(assigned_to IS NOT NULL AND assigned_to > 0)");
+      } else {
+        grandWhere.push("assigned_to = ?");
+        grandTotalParams.push(parseInt(assigned_to, 10));
+      }
+    }
+    const grandWhereClause = grandWhere.length > 0 ? " WHERE " + grandWhere.join(" AND ") : "";
+    const grandTotalSql = `(SELECT COUNT(*) FROM calling_leads${grandWhereClause}) as grand_total`;
+
     const [generalStats, catSubStats, birthdayStats, callerBreakdown] = await Promise.all([
       queryPromise(`
         SELECT 
@@ -545,12 +710,12 @@ exports.getCallingStats = async (req, res) => {
       // Compute category-wide male, female and category_total counts so they NEVER drop or change when filtering by sub_category
       queryPromise(`
         SELECT 
-          (SELECT COUNT(*) FROM calling_leads) as grand_total,
+          ${grandTotalSql},
           COUNT(*) as category_total,
           SUM(CASE WHEN sub_category = 'Male' OR sub_category = 'पुरुष' THEN 1 ELSE 0 END) as male_count,
           SUM(CASE WHEN sub_category = 'Female' OR sub_category = 'महिला' THEN 1 ELSE 0 END) as female_count
         FROM calling_leads ${catWhere}
-      `, catParams),
+      `, [...grandTotalParams, ...catParams]),
 
       queryPromise(`
         SELECT 
@@ -600,11 +765,12 @@ exports.getCallingStats = async (req, res) => {
           SUM(CASE WHEN c.call_status IN ('dialed', 'dailed', 'dialed_call', 'dialed_calls') THEN 1 ELSE 0 END) as dialed_count,
           MAX(c.called_at) as last_called_at
         FROM admins a
-        LEFT JOIN calling_leads c ON c.assigned_to = a.id ${category && category !== 'all' ? 'AND c.category = ?' : ''} ${sub_category && sub_category !== 'all' ? 'AND c.sub_category = ?' : ''}
+        LEFT JOIN calling_leads c ON c.assigned_to = a.id ${campaign && campaign !== 'all' ? 'AND c.campaign = ?' : ''} ${category && category !== 'all' ? 'AND c.category = ?' : ''} ${sub_category && sub_category !== 'all' ? 'AND c.sub_category = ?' : ''}
         WHERE (a.role = 'employee' OR a.role = 'caller' OR a.role = 'admin') AND (a.isDelete = 0 OR a.isDelete IS NULL) AND (a.isDeleted = 0 OR a.isDeleted IS NULL)
         GROUP BY a.id, a.username, a.name
         ORDER BY assigned_count DESC
       `, [
+        ...(campaign && campaign !== 'all' ? [campaign] : []),
         ...(category && category !== 'all' ? [category] : []),
         ...(sub_category && sub_category !== 'all' ? [sub_category] : [])
       ])
@@ -647,10 +813,10 @@ exports.getCallingStats = async (req, res) => {
   }
 };
 
-// ASSIGN LEADS TO CALLER (Supports bulk assign with category & sub_category)
+// ASSIGN LEADS TO CALLER (Supports bulk assign with campaign, category & sub_category)
 exports.assignLeads = async (req, res) => {
   try {
-    const { lead_ids, assigned_to, bulk_count, category, sub_category, filter_status } = req.body;
+    const { lead_ids, assigned_to, bulk_count, campaign, category, sub_category, filter_status } = req.body;
     const callerId = assigned_to ? parseInt(assigned_to, 10) : null;
 
     // Option 1: Assign specific selected lead IDs
@@ -668,6 +834,11 @@ exports.assignLeads = async (req, res) => {
       const count = parseInt(bulk_count, 10);
       let selectSql = "SELECT id FROM calling_leads WHERE (assigned_to IS NULL OR assigned_to = 0)";
       const selectParams = [];
+
+      if (campaign && campaign !== "all") {
+        selectSql += " AND campaign = ?";
+        selectParams.push(campaign);
+      }
 
       if (category && category !== "all") {
         selectSql += " AND category = ?";
@@ -714,6 +885,7 @@ exports.updateLead = async (req, res) => {
   try {
     const { id } = req.params;
     const {
+      campaign,
       name,
       phone,
       dob,
@@ -744,6 +916,7 @@ exports.updateLead = async (req, res) => {
     const sql = `
       UPDATE calling_leads
       SET 
+        campaign = COALESCE(?, campaign),
         name = ?,
         phone = ?,
         dob = ?,
@@ -766,6 +939,7 @@ exports.updateLead = async (req, res) => {
     `;
 
     await queryPromise(sql, [
+      campaign ? String(campaign).trim() : null,
       name ? String(name).trim() : null,
       cleanPhone || phone,
       parsed.dob || dob || null,
@@ -940,7 +1114,8 @@ exports.updateLeadStatus = async (req, res) => {
 // UPLOAD / IMPORT EXCEL DATA (Handles Marathi Constituency files & Standard reports)
 exports.uploadLeads = async (req, res) => {
   try {
-    const { category = "Birthday Calling", sub_category = null, rows = [] } = req.body;
+    const { campaign = "दिवाळी फराळ & दीप महोत्सव", category = "Birthday Calling", sub_category = null, rows = [] } = req.body;
+    const targetCampaign = (campaign && String(campaign).trim()) || "दिवाळी फराळ & दीप महोत्सव";
     const targetCategory = category.trim() || "Birthday Calling";
     const targetSubCategory = sub_category ? sub_category.trim() : null;
 
@@ -948,10 +1123,17 @@ exports.uploadLeads = async (req, res) => {
       return res.status(400).json({ error: "No rows provided for import." });
     }
 
-    // 1. Fetch existing phones and visitor IDs in this category to prevent duplicate entries
+    // Ensure campaign exists in calling_campaigns
+    try {
+      await queryPromise("INSERT IGNORE INTO calling_campaigns (name, status) VALUES (?, 'active')", [targetCampaign]);
+    } catch (cErr) {
+      console.warn("Campaign insert note:", cErr.message);
+    }
+
+    // 1. Fetch existing phones and visitor IDs in this campaign & category to prevent duplicate entries
     const existingRows = await queryPromise(
-      "SELECT phone, visitor_id, sub_category FROM calling_leads WHERE category = ?",
-      [targetCategory]
+      "SELECT phone, visitor_id, sub_category FROM calling_leads WHERE campaign = ? AND category = ?",
+      [targetCampaign, targetCategory]
     );
 
     const existingPhones = new Set();
@@ -1057,6 +1239,7 @@ exports.uploadLeads = async (req, res) => {
       const initialStatus = mapRemarkToStatus(remarks, targetCategory);
 
       rowsToInsert.push([
+        targetCampaign,
         targetCategory,
         rowSubCategory,
         visitorId,
@@ -1077,7 +1260,7 @@ exports.uploadLeads = async (req, res) => {
 
     if (rowsToInsert.length === 0) {
       return res.json({
-        message: `All ${duplicateCount} leads in this file already exist in "${targetCategory}" (0 duplicate leads added).`,
+        message: `All ${duplicateCount} leads in this file already exist in "${targetCampaign}" > "${targetCategory}" (0 duplicate leads added).`,
         insertedCount: 0,
         duplicateCount,
         totalProcessed: rows.length
@@ -1091,7 +1274,7 @@ exports.uploadLeads = async (req, res) => {
       const chunk = rowsToInsert.slice(i, i + chunkSize);
       const sql = `
         INSERT INTO calling_leads (
-          category, sub_category, visitor_id, name, phone, dob, dob_day, dob_month,
+          campaign, category, sub_category, visitor_id, name, phone, dob, dob_day, dob_month,
           visit_date, reference_by, purpose, address, excel_remarks,
           assigned_to, call_status
         ) VALUES ?
@@ -1101,7 +1284,7 @@ exports.uploadLeads = async (req, res) => {
     }
 
     res.status(201).json({
-      message: `Successfully imported ${inserted} new leads into "${targetCategory}"${targetSubCategory ? ` (${targetSubCategory})` : ""}. (${duplicateCount} duplicates skipped)`,
+      message: `Successfully imported ${inserted} new leads into "${targetCampaign}" > "${targetCategory}"${targetSubCategory ? ` (${targetSubCategory})` : ""}. (${duplicateCount} duplicates skipped)`,
       insertedCount: inserted,
       duplicateCount,
       totalProcessed: rows.length
@@ -1145,7 +1328,7 @@ exports.getAllCallLogs = async (req, res) => {
     const conditions = [];
     const params = [];
 
-    const isCaller = req.user && (req.user.role === "employee" || req.user.role === "caller");
+    const isCaller = !req.user || (req.user.role !== "admin" && req.user.role !== "superadmin");
     if (isCaller) {
       conditions.push("l.caller_id = ?");
       params.push(req.user.id);
