@@ -75,6 +75,19 @@ function mapRemarkToStatus(remark, category = "") {
     return "callback";
   }
 
+  // Dialed / Dailed calls in Excel remarks
+  if (
+    r === "dialed" ||
+    r === "dailed" ||
+    r.includes("dialed") ||
+    r.includes("dailed") ||
+    r.includes("डायल") ||
+    r.includes("कॉल केला") ||
+    r === "dial"
+  ) {
+    return "dialed";
+  }
+
   return "pending";
 }
 
@@ -127,6 +140,10 @@ exports.getLeads = async (req, res) => {
       assigned_to,
       call_status,
       birthday_filter,
+      date_filter,
+      start_date,
+      end_date,
+      date_field = "called",
       search,
       page = 1,
       limit = 50,
@@ -175,14 +192,30 @@ exports.getLeads = async (req, res) => {
         conditions.push("(c.call_status = 'pending' OR c.call_status IS NULL OR c.call_status = '')");
       } else if (call_status === "all_completed" || call_status === "total_dialed") {
         conditions.push("(c.call_status != 'pending' AND c.call_status IS NOT NULL AND c.call_status != '')");
+      } else if (call_status === "completed_wished") {
+        conditions.push("(c.call_status = 'completed' OR c.call_status = 'called' OR c.call_status = 'resolved' OR c.call_status = 'birthday_wished' OR c.call_status = 'incoming_call')");
       } else if (call_status === "completed") {
-        conditions.push("(c.call_status = 'completed' OR c.call_status = 'called' OR c.call_status = 'resolved' OR c.call_status = 'incoming_call' OR c.call_status = 'birthday_wished')");
-      } else if (call_status === "not_reachable_all") {
-        conditions.push("(c.call_status = 'not_reachable' OR c.call_status = 'invalid_number')");
+        conditions.push("(c.call_status = 'completed' OR c.call_status = 'called' OR c.call_status = 'resolved' OR c.call_status = 'incoming_call')");
+      } else if (call_status === "birthday_wished") {
+        conditions.push("c.call_status = 'birthday_wished'");
+      } else if (call_status === "incoming_call") {
+        conditions.push("c.call_status = 'incoming_call'");
+      } else if (call_status === "callback") {
+        conditions.push("c.call_status = 'callback'");
+      } else if (call_status === "unreachable" || call_status === "all_not_reachable") {
+        conditions.push("(c.call_status = 'not_reachable' OR c.call_status = 'busy' OR c.call_status = 'switch_off' OR c.call_status = 'not_answered' OR c.call_status = 'wrong_number' OR c.call_status = 'invalid_number')");
       } else if (call_status === "not_reachable") {
         conditions.push("c.call_status = 'not_reachable'");
-      } else if (call_status === "invalid_number") {
-        conditions.push("c.call_status = 'invalid_number'");
+      } else if (call_status === "busy") {
+        conditions.push("c.call_status = 'busy'");
+      } else if (call_status === "switch_off") {
+        conditions.push("c.call_status = 'switch_off'");
+      } else if (call_status === "not_answered") {
+        conditions.push("c.call_status = 'not_answered'");
+      } else if (call_status === "wrong_number" || call_status === "invalid_number") {
+        conditions.push("(c.call_status = 'wrong_number' OR c.call_status = 'invalid_number')");
+      } else if (call_status === "dialed" || call_status === "dailed" || call_status === "dialed_call" || call_status === "dialed_calls") {
+        conditions.push("(c.call_status IN ('dialed', 'dailed', 'dialed_call', 'dialed_calls'))");
       } else {
         conditions.push("c.call_status = ?");
         params.push(call_status);
@@ -204,6 +237,83 @@ exports.getLeads = async (req, res) => {
         if (monthNum >= 1 && monthNum <= 12) {
           conditions.push("c.dob_month = ?");
           params.push(monthNum);
+        }
+      }
+    }
+
+    // Call Date / Activity Date filter (Today, Yesterday, Custom date)
+    if (date_filter && date_filter !== "all") {
+      if (date_field === "created") {
+        if (date_filter === "today" || date_filter === "todays") {
+          conditions.push("DATE(c.created_at) = CURDATE()");
+        } else if (date_filter === "yesterday" || date_filter === "yestordays" || date_filter === "yesterdays") {
+          conditions.push("DATE(c.created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)");
+        } else if (date_filter === "custom") {
+          if (start_date && end_date) {
+            conditions.push("DATE(c.created_at) BETWEEN ? AND ?");
+            params.push(start_date, end_date);
+          } else if (start_date) {
+            conditions.push("DATE(c.created_at) = ?");
+            params.push(start_date);
+          } else if (end_date) {
+            conditions.push("DATE(c.created_at) = ?");
+            params.push(end_date);
+          }
+        }
+      } else {
+        // Default: date_field === "called"
+        if (call_status === "pending") {
+          // For pending calls, they haven't been called yet (called_at is NULL).
+          // Filter by leads present till today / target date!
+          if (date_filter === "today" || date_filter === "todays") {
+            conditions.push("DATE(c.created_at) <= CURDATE()");
+          } else if (date_filter === "yesterday" || date_filter === "yestordays" || date_filter === "yesterdays") {
+            conditions.push("DATE(c.created_at) <= DATE_SUB(CURDATE(), INTERVAL 1 DAY)");
+          } else if (date_filter === "custom") {
+            if (end_date) {
+              conditions.push("DATE(c.created_at) <= ?");
+              params.push(end_date);
+            } else if (start_date) {
+              conditions.push("DATE(c.created_at) <= ?");
+              params.push(start_date);
+            }
+          }
+        } else if (call_status && call_status !== "all") {
+          // Dialed/connected status: filter by call date (called_at)
+          if (date_filter === "today" || date_filter === "todays") {
+            conditions.push("DATE(c.called_at) = CURDATE()");
+          } else if (date_filter === "yesterday" || date_filter === "yestordays" || date_filter === "yesterdays") {
+            conditions.push("DATE(c.called_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)");
+          } else if (date_filter === "custom") {
+            if (start_date && end_date) {
+              conditions.push("DATE(c.called_at) BETWEEN ? AND ?");
+              params.push(start_date, end_date);
+            } else if (start_date) {
+              conditions.push("DATE(c.called_at) = ?");
+              params.push(start_date);
+            } else if (end_date) {
+              conditions.push("DATE(c.called_at) = ?");
+              params.push(end_date);
+            }
+          }
+        } else {
+          // All statuses: include calls dialed on that date + pending leads present till that date
+          if (date_filter === "today" || date_filter === "todays") {
+            conditions.push("(((c.call_status != 'pending' AND c.call_status IS NOT NULL AND c.call_status != '') AND DATE(c.called_at) = CURDATE()) OR ((c.call_status = 'pending' OR c.call_status IS NULL OR c.call_status = '') AND DATE(c.created_at) <= CURDATE()))");
+          } else if (date_filter === "yesterday" || date_filter === "yestordays" || date_filter === "yesterdays") {
+            conditions.push("(((c.call_status != 'pending' AND c.call_status IS NOT NULL AND c.call_status != '') AND DATE(c.called_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)) OR ((c.call_status = 'pending' OR c.call_status IS NULL OR c.call_status = '') AND DATE(c.created_at) <= DATE_SUB(CURDATE(), INTERVAL 1 DAY)))");
+          } else if (date_filter === "custom") {
+            if (start_date && end_date) {
+              conditions.push("(((c.call_status != 'pending' AND c.call_status IS NOT NULL AND c.call_status != '') AND DATE(c.called_at) BETWEEN ? AND ?) OR ((c.call_status = 'pending' OR c.call_status IS NULL OR c.call_status = '') AND DATE(c.created_at) <= ?))");
+              params.push(start_date, end_date, end_date);
+            } else if (start_date) {
+              conditions.push("(((c.call_status != 'pending' AND c.call_status IS NOT NULL AND c.call_status != '') AND DATE(c.called_at) = ?) OR ((c.call_status = 'pending' OR c.call_status IS NULL OR c.call_status = '') AND DATE(c.created_at) <= ?))");
+              params.push(start_date, start_date);
+            } else if (end_date) {
+              conditions.push("(((c.call_status != 'pending' AND c.call_status IS NOT NULL AND c.call_status != '') AND DATE(c.called_at) = ?) OR ((c.call_status = 'pending' OR c.call_status IS NULL OR c.call_status = '') AND DATE(c.created_at) <= ?))");
+              params.push(end_date, end_date);
+            }
+          }
         }
       }
     }
@@ -326,7 +436,15 @@ exports.getCategories = async (req, res) => {
 // GET CALLING METRICS / STATS
 exports.getCallingStats = async (req, res) => {
   try {
-    const { category, sub_category, assigned_to } = req.query;
+    const {
+      category,
+      sub_category,
+      assigned_to,
+      date_filter,
+      start_date,
+      end_date,
+      date_field = "called"
+    } = req.query;
     const isCaller = req.user && (req.user.role === "employee" || req.user.role === "caller");
     
     // Category base conditions (WITHOUT sub_category filter)
@@ -356,6 +474,47 @@ exports.getCallingStats = async (req, res) => {
       conditions.push("sub_category = ?");
       params.push(sub_category);
     }
+
+    // Call Date / Activity Date filter (today, yesterday, custom)
+    if (date_filter && date_filter !== "all") {
+      if (date_field === "created") {
+        if (date_filter === "today" || date_filter === "todays") {
+          conditions.push("DATE(created_at) = CURDATE()");
+        } else if (date_filter === "yesterday" || date_filter === "yestordays" || date_filter === "yesterdays") {
+          conditions.push("DATE(created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)");
+        } else if (date_filter === "custom") {
+          if (start_date && end_date) {
+            conditions.push("DATE(created_at) BETWEEN ? AND ?");
+            params.push(start_date, end_date);
+          } else if (start_date) {
+            conditions.push("DATE(created_at) = ?");
+            params.push(start_date);
+          } else if (end_date) {
+            conditions.push("DATE(created_at) = ?");
+            params.push(end_date);
+          }
+        }
+      } else {
+        // Default: date_field === "called"
+        // Dialed/connected calls match date of call (called_at), while pending calls match uncalled leads present till that date (created_at <= target date)
+        if (date_filter === "today" || date_filter === "todays") {
+          conditions.push("(((call_status != 'pending' AND call_status IS NOT NULL AND call_status != '') AND DATE(called_at) = CURDATE()) OR ((call_status = 'pending' OR call_status IS NULL OR call_status = '') AND DATE(created_at) <= CURDATE()))");
+        } else if (date_filter === "yesterday" || date_filter === "yestordays" || date_filter === "yesterdays") {
+          conditions.push("(((call_status != 'pending' AND call_status IS NOT NULL AND call_status != '') AND DATE(called_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)) OR ((call_status = 'pending' OR call_status IS NULL OR call_status = '') AND DATE(created_at) <= DATE_SUB(CURDATE(), INTERVAL 1 DAY)))");
+        } else if (date_filter === "custom") {
+          if (start_date && end_date) {
+            conditions.push("(((call_status != 'pending' AND call_status IS NOT NULL AND call_status != '') AND DATE(called_at) BETWEEN ? AND ?) OR ((call_status = 'pending' OR call_status IS NULL OR call_status = '') AND DATE(created_at) <= ?))");
+            params.push(start_date, end_date, end_date);
+          } else if (start_date) {
+            conditions.push("(((call_status != 'pending' AND call_status IS NOT NULL AND call_status != '') AND DATE(called_at) = ?) OR ((call_status = 'pending' OR call_status IS NULL OR call_status = '') AND DATE(created_at) <= ?))");
+            params.push(start_date, start_date);
+          } else if (end_date) {
+            conditions.push("(((call_status != 'pending' AND call_status IS NOT NULL AND call_status != '') AND DATE(called_at) = ?) OR ((call_status = 'pending' OR call_status IS NULL OR call_status = '') AND DATE(created_at) <= ?))");
+            params.push(end_date, end_date);
+          }
+        }
+      }
+    }
     const whereCat = conditions.length > 0 ? " WHERE " + conditions.join(" AND ") : "";
 
     const [generalStats, catSubStats, birthdayStats, callerBreakdown] = await Promise.all([
@@ -363,15 +522,20 @@ exports.getCallingStats = async (req, res) => {
         SELECT 
           COUNT(*) as total,
           SUM(CASE WHEN call_status = 'pending' OR call_status IS NULL OR call_status = '' THEN 1 ELSE 0 END) as pending,
-          SUM(CASE WHEN call_status = 'completed' THEN 1 ELSE 0 END) as completed,
+          SUM(CASE WHEN call_status = 'completed' OR call_status = 'called' OR call_status = 'resolved' THEN 1 ELSE 0 END) as completed,
           SUM(CASE WHEN call_status = 'called' THEN 1 ELSE 0 END) as called,
           SUM(CASE WHEN call_status = 'birthday_wished' THEN 1 ELSE 0 END) as birthday_wished,
           SUM(CASE WHEN call_status = 'not_reachable' THEN 1 ELSE 0 END) as not_reachable,
+          SUM(CASE WHEN call_status = 'busy' THEN 1 ELSE 0 END) as busy,
+          SUM(CASE WHEN call_status = 'switch_off' THEN 1 ELSE 0 END) as switch_off,
+          SUM(CASE WHEN call_status = 'not_answered' THEN 1 ELSE 0 END) as not_answered,
+          SUM(CASE WHEN call_status = 'wrong_number' OR call_status = 'invalid_number' THEN 1 ELSE 0 END) as wrong_number,
           SUM(CASE WHEN call_status = 'invalid_number' THEN 1 ELSE 0 END) as invalid_number,
           SUM(CASE WHEN call_status = 'callback' THEN 1 ELSE 0 END) as callback,
           SUM(CASE WHEN call_status = 'resolved' THEN 1 ELSE 0 END) as resolved,
           SUM(CASE WHEN call_status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
           SUM(CASE WHEN call_status = 'incoming_call' THEN 1 ELSE 0 END) as incoming_call,
+          SUM(CASE WHEN call_status IN ('dialed', 'dailed', 'dialed_call', 'dialed_calls') THEN 1 ELSE 0 END) as dialed,
           SUM(CASE WHEN call_status != 'pending' AND call_status IS NOT NULL AND call_status != '' THEN 1 ELSE 0 END) as total_dialed,
           SUM(CASE WHEN assigned_to IS NULL OR assigned_to = 0 THEN 1 ELSE 0 END) as unassigned,
           SUM(CASE WHEN assigned_to IS NOT NULL AND assigned_to > 0 THEN 1 ELSE 0 END) as assigned
@@ -381,6 +545,7 @@ exports.getCallingStats = async (req, res) => {
       // Compute category-wide male, female and category_total counts so they NEVER drop or change when filtering by sub_category
       queryPromise(`
         SELECT 
+          (SELECT COUNT(*) FROM calling_leads) as grand_total,
           COUNT(*) as category_total,
           SUM(CASE WHEN sub_category = 'Male' OR sub_category = 'पुरुष' THEN 1 ELSE 0 END) as male_count,
           SUM(CASE WHEN sub_category = 'Female' OR sub_category = 'महिला' THEN 1 ELSE 0 END) as female_count
@@ -417,17 +582,22 @@ exports.getCallingStats = async (req, res) => {
           a.role,
           a.status,
           COUNT(c.id) as assigned_count,
-          SUM(CASE WHEN c.call_status = 'completed' THEN 1 ELSE 0 END) as completed_count,
+          SUM(CASE WHEN c.call_status = 'completed' OR c.call_status = 'called' OR c.call_status = 'resolved' THEN 1 ELSE 0 END) as completed_count,
           SUM(CASE WHEN c.call_status != 'pending' AND c.call_status IS NOT NULL AND c.call_status != '' THEN 1 ELSE 0 END) as total_dialed_count,
           SUM(CASE WHEN c.id IS NOT NULL AND (c.call_status = 'pending' OR c.call_status IS NULL OR c.call_status = '') THEN 1 ELSE 0 END) as pending_count,
           SUM(CASE WHEN c.call_status = 'birthday_wished' THEN 1 ELSE 0 END) as birthday_wished_count,
           SUM(CASE WHEN c.call_status = 'called' THEN 1 ELSE 0 END) as called_count,
           SUM(CASE WHEN c.call_status = 'not_reachable' THEN 1 ELSE 0 END) as not_reachable_count,
+          SUM(CASE WHEN c.call_status = 'busy' THEN 1 ELSE 0 END) as busy_count,
+          SUM(CASE WHEN c.call_status = 'switch_off' THEN 1 ELSE 0 END) as switch_off_count,
+          SUM(CASE WHEN c.call_status = 'not_answered' THEN 1 ELSE 0 END) as not_answered_count,
+          SUM(CASE WHEN c.call_status = 'wrong_number' OR c.call_status = 'invalid_number' THEN 1 ELSE 0 END) as wrong_number_count,
           SUM(CASE WHEN c.call_status = 'invalid_number' THEN 1 ELSE 0 END) as invalid_count,
           SUM(CASE WHEN c.call_status = 'callback' THEN 1 ELSE 0 END) as callback_count,
           SUM(CASE WHEN c.call_status = 'in_progress' THEN 1 ELSE 0 END) as in_progress_count,
           SUM(CASE WHEN c.call_status = 'incoming_call' THEN 1 ELSE 0 END) as incoming_call_count,
           SUM(CASE WHEN c.call_status = 'resolved' THEN 1 ELSE 0 END) as resolved_count,
+          SUM(CASE WHEN c.call_status IN ('dialed', 'dailed', 'dialed_call', 'dialed_calls') THEN 1 ELSE 0 END) as dialed_count,
           MAX(c.called_at) as last_called_at
         FROM admins a
         LEFT JOIN calling_leads c ON c.assigned_to = a.id ${category && category !== 'all' ? 'AND c.category = ?' : ''} ${sub_category && sub_category !== 'all' ? 'AND c.sub_category = ?' : ''}
@@ -445,6 +615,7 @@ exports.getCallingStats = async (req, res) => {
     for (const [k, v] of Object.entries(rawMetrics)) {
       normalizedMetrics[k] = v !== null && v !== undefined && !isNaN(Number(v)) ? Number(v) : v;
     }
+    normalizedMetrics.grand_total = Number(catSubStats[0]?.grand_total || 0);
     normalizedMetrics.category_total = catSubStats[0]?.category_total !== undefined ? Number(catSubStats[0].category_total) : (normalizedMetrics.total || 0);
     normalizedMetrics.male_count = Number(catSubStats[0]?.male_count || 0);
     normalizedMetrics.female_count = Number(catSubStats[0]?.female_count || 0);
@@ -555,6 +726,7 @@ exports.updateLead = async (req, res) => {
       address,
       call_status,
       call_notes,
+      callback_at,
       assigned_to
     } = req.body;
 
@@ -586,6 +758,7 @@ exports.updateLead = async (req, res) => {
         address = ?,
         call_status = COALESCE(?, call_status),
         call_notes = ?,
+        callback_at = COALESCE(?, callback_at),
         assigned_to = ?,
         ${statusChanged ? (call_status === 'pending' ? 'called_at = NULL,' : 'called_at = NOW(),') : ''}
         updated_at = NOW()
@@ -607,6 +780,7 @@ exports.updateLead = async (req, res) => {
       address || null,
       call_status || null,
       call_notes !== undefined ? call_notes : null,
+      callback_at !== undefined ? callback_at : null,
       assigned_to !== undefined && assigned_to !== "" && assigned_to !== null ? parseInt(assigned_to, 10) : null,
       id
     ]);
@@ -664,7 +838,7 @@ exports.updateLead = async (req, res) => {
 exports.updateLeadStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { call_status, call_notes } = req.body;
+    const { call_status, call_notes, callback_at } = req.body;
 
     if (!call_status) {
       return res.status(400).json({ error: "call_status is required" });
@@ -698,7 +872,14 @@ exports.updateLeadStatus = async (req, res) => {
     } else {
       sql += ", called_at = NOW()";
     }
+
     const params = [call_status, call_notes !== undefined ? call_notes : null];
+
+    // If callback status, update callback_at
+    if (call_status === "callback") {
+      sql += ", callback_at = ?";
+      params.push(callback_at || null);
+    }
 
     if (req.user && req.user.id) {
       sql += ", assigned_to = COALESCE(assigned_to, ?)";
@@ -719,8 +900,8 @@ exports.updateLeadStatus = async (req, res) => {
       const logResult = await queryPromise(
         `INSERT INTO call_logs (
           lead_id, caller_id, caller_number, customer_number,
-          previous_status, call_status, notes, raw_response, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+          previous_status, call_status, notes, callback_at, raw_response, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
         [
           id,
           callerId,
@@ -729,10 +910,12 @@ exports.updateLeadStatus = async (req, res) => {
           previousStatus,
           call_status,
           call_notes !== undefined ? call_notes : null,
+          call_status === "callback" ? (callback_at || null) : null,
           JSON.stringify({
             source: "dashboard_status_update",
             caller_id: callerId,
             caller_name: callerName,
+            callback_at: callback_at || null,
             timestamp: new Date().toISOString()
           })
         ]
@@ -1089,12 +1272,17 @@ exports.getCallerDetails = async (req, res) => {
           SUM(CASE WHEN call_status = 'birthday_wished' THEN 1 ELSE 0 END) as birthday_wished,
           SUM(CASE WHEN call_status = 'called' THEN 1 ELSE 0 END) as called,
           SUM(CASE WHEN call_status = 'not_reachable' THEN 1 ELSE 0 END) as not_reachable,
+          SUM(CASE WHEN call_status = 'busy' THEN 1 ELSE 0 END) as busy,
+          SUM(CASE WHEN call_status = 'switch_off' THEN 1 ELSE 0 END) as switch_off,
+          SUM(CASE WHEN call_status = 'not_answered' THEN 1 ELSE 0 END) as not_answered,
+          SUM(CASE WHEN call_status = 'wrong_number' OR call_status = 'invalid_number' THEN 1 ELSE 0 END) as wrong_number,
           SUM(CASE WHEN call_status = 'invalid_number' THEN 1 ELSE 0 END) as invalid_number,
           SUM(CASE WHEN call_status = 'callback' THEN 1 ELSE 0 END) as callback,
           SUM(CASE WHEN call_status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
           SUM(CASE WHEN call_status = 'incoming_call' THEN 1 ELSE 0 END) as incoming_call,
           SUM(CASE WHEN call_status = 'resolved' THEN 1 ELSE 0 END) as resolved,
-          SUM(CASE WHEN call_status IN ('completed', 'called', 'resolved', 'incoming_call', 'birthday_wished') THEN 1 ELSE 0 END) as connected,
+          SUM(CASE WHEN call_status IN ('dialed', 'dailed', 'dialed_call', 'dialed_calls') THEN 1 ELSE 0 END) as dialed,
+          SUM(CASE WHEN call_status IN ('completed', 'called', 'resolved', 'incoming_call', 'birthday_wished', 'dialed', 'dailed') THEN 1 ELSE 0 END) as connected,
           MAX(called_at) as last_called_at
         FROM calling_leads 
         WHERE assigned_to = ?
@@ -1107,6 +1295,10 @@ exports.getCallerDetails = async (req, res) => {
           SUM(CASE WHEN call_status IN ('completed', 'called', 'resolved', 'incoming_call', 'birthday_wished') THEN 1 ELSE 0 END) as connected,
           SUM(CASE WHEN call_status = 'callback' THEN 1 ELSE 0 END) as callback,
           SUM(CASE WHEN call_status = 'not_reachable' THEN 1 ELSE 0 END) as not_reachable,
+          SUM(CASE WHEN call_status = 'busy' THEN 1 ELSE 0 END) as busy,
+          SUM(CASE WHEN call_status = 'switch_off' THEN 1 ELSE 0 END) as switch_off,
+          SUM(CASE WHEN call_status = 'not_answered' THEN 1 ELSE 0 END) as not_answered,
+          SUM(CASE WHEN call_status = 'wrong_number' OR call_status = 'invalid_number' THEN 1 ELSE 0 END) as wrong_number,
           SUM(CASE WHEN call_status = 'invalid_number' THEN 1 ELSE 0 END) as invalid_number,
           SUM(CASE WHEN call_status = 'completed' THEN 1 ELSE 0 END) as completed,
           SUM(CASE WHEN call_status = 'pending' OR call_status IS NULL OR call_status = '' THEN 1 ELSE 0 END) as pending

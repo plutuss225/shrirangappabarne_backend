@@ -9,7 +9,7 @@ const db = mysql.createPool({
   charset: "utf8mb4",
   timezone: "+05:30",
   waitForConnections: true,
-  connectionLimit: 10,
+  connectionLimit: 5,
   queueLimit: 0,
   dateStrings: true
 });
