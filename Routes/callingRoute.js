@@ -16,7 +16,9 @@ const {
   uploadCallRecording,
   getRecordingAudio,
   getLeadRecordingMeta,
-  deleteRecording
+  deleteRecording,
+  getCampaigns,
+  createCampaign
 } = require("../controllers/callingController");
 const multer = require("multer");
 const recordingUpload = multer({
@@ -29,6 +31,10 @@ const authMiddleware = require("../middleware/authMiddleware");
 // UPDATE OWN STATUS (Activate or Inactivate)
 router.put("/status", authMiddleware, updateMyStatus);
 router.patch("/status", authMiddleware, updateMyStatus);
+
+// CAMPAIGNS
+router.get("/campaigns", authMiddleware, getCampaigns);
+router.post("/campaigns", authMiddleware, createCampaign);
 
 // GET ALL LEADS
 router.get("/leads", authMiddleware, getLeads);
