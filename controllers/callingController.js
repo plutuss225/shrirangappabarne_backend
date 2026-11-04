@@ -262,7 +262,7 @@ exports.getLeads = async (req, res) => {
       page = 1,
       limit = 50,
       sort_by = "id",
-      sort_order = "DESC"
+      sort_order = "ASC"
     } = req.query;
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
@@ -456,7 +456,7 @@ exports.getLeads = async (req, res) => {
 
     // Fetch records
     const safeSort = ["id", "name", "phone", "dob_month", "dob_day", "called_at", "created_at"].includes(sort_by) ? sort_by : "id";
-    const safeOrder = sort_order.toUpperCase() === "ASC" ? "ASC" : "DESC";
+    const safeOrder = sort_order && sort_order.toUpperCase() === "DESC" ? "DESC" : "ASC";
 
     const dataSql = `
       SELECT 
@@ -507,15 +507,9 @@ exports.getCategories = async (req, res) => {
     if (isCaller) {
       whereConditions.push("assigned_to = ?");
       params.push(req.user.id);
-    } else if (assignedParam && assignedParam !== "all") {
-      if (assignedParam === "unassigned") {
-        whereConditions.push("(assigned_to IS NULL OR assigned_to = 0)");
-      } else if (assignedParam === "assigned") {
-        whereConditions.push("(assigned_to IS NOT NULL AND assigned_to > 0)");
-      } else {
-        whereConditions.push("assigned_to = ?");
-        params.push(parseInt(assignedParam, 10));
-      }
+    } else if (assignedParam && assignedParam !== "all" && assignedParam !== "assigned" && assignedParam !== "unassigned") {
+      whereConditions.push("assigned_to = ?");
+      params.push(parseInt(assignedParam, 10));
     }
 
     const whereClause = " WHERE " + whereConditions.join(" AND ");
@@ -531,8 +525,8 @@ exports.getCategories = async (req, res) => {
           SUM(CASE WHEN assigned_to IS NULL OR assigned_to = 0 THEN 1 ELSE 0 END) as unassigned_count
         FROM calling_leads 
         ${whereClause}
-        GROUP BY category 
-        ORDER BY total_count DESC
+        GROUP BY category
+        ORDER BY MIN(id) ASC
       `, params),
 
       queryPromise(`
@@ -543,7 +537,7 @@ exports.getCategories = async (req, res) => {
         FROM calling_leads
         ${whereClause} AND sub_category IS NOT NULL AND sub_category != ''
         GROUP BY category, sub_category
-        ORDER BY category, sub_category
+        ORDER BY MIN(id) ASC
       `, params)
     ]);
 
@@ -580,35 +574,50 @@ exports.getCallingStats = async (req, res) => {
     } = req.query;
     const isCaller = !req.user || (req.user.role !== "admin" && req.user.role !== "superadmin");
     
-    // Category base conditions (WITHOUT sub_category filter)
-    const catConditions = [];
-    const catParams = [];
+    // 1. Base conditions for Category & Grand totals (NEVER filtered by assigned_to or sub_category for Admin)
+    const baseCatConditions = [];
+    const baseCatParams = [];
     if (campaign && campaign !== "all") {
-      catConditions.push("campaign = ?");
-      catParams.push(campaign);
+      baseCatConditions.push("campaign = ?");
+      baseCatParams.push(campaign);
     }
     if (category && category !== "all") {
-      catConditions.push("category = ?");
-      catParams.push(category);
+      baseCatConditions.push("category = ?");
+      baseCatParams.push(category);
     }
     if (isCaller) {
-      catConditions.push("assigned_to = ?");
-      catParams.push(req.user.id);
-    } else if (assigned_to !== undefined && assigned_to !== "" && assigned_to !== "all") {
+      baseCatConditions.push("assigned_to = ?");
+      baseCatParams.push(req.user.id);
+    }
+    const baseCatWhere = baseCatConditions.length > 0 ? " WHERE " + baseCatConditions.join(" AND ") : "";
+
+    // 2. Grand total conditions (Campaign wide, NEVER filtered by category or assigned_to for Admin)
+    const grandWhere = [];
+    const grandTotalParams = [];
+    if (campaign && campaign !== "all") {
+      grandWhere.push("campaign = ?");
+      grandTotalParams.push(campaign);
+    }
+    if (isCaller) {
+      grandWhere.push("assigned_to = ?");
+      grandTotalParams.push(req.user.id);
+    }
+    const grandWhereClause = grandWhere.length > 0 ? " WHERE " + grandWhere.join(" AND ") : "";
+    const grandTotalSql = `(SELECT COUNT(*) FROM calling_leads${grandWhereClause}) as grand_total`;
+
+    // 3. Filtered conditions for leads breakdown (WITH assigned_to, sub_category, date_filter)
+    const conditions = [...baseCatConditions];
+    const params = [...baseCatParams];
+    if (!isCaller && assigned_to !== undefined && assigned_to !== "" && assigned_to !== "all") {
       if (assigned_to === "unassigned") {
-        catConditions.push("(assigned_to IS NULL OR assigned_to = 0)");
+        conditions.push("(assigned_to IS NULL OR assigned_to = 0)");
       } else if (assigned_to === "assigned") {
-        catConditions.push("(assigned_to IS NOT NULL AND assigned_to > 0)");
+        conditions.push("(assigned_to IS NOT NULL AND assigned_to > 0)");
       } else {
-        catConditions.push("assigned_to = ?");
-        catParams.push(parseInt(assigned_to, 10));
+        conditions.push("assigned_to = ?");
+        params.push(parseInt(assigned_to, 10));
       }
     }
-    const catWhere = catConditions.length > 0 ? " WHERE " + catConditions.join(" AND ") : "";
-
-    // Subcategory-filtered conditions (WITH sub_category filter)
-    const conditions = [...catConditions];
-    const params = [...catParams];
     if (sub_category && sub_category !== "all") {
       conditions.push("sub_category = ?");
       params.push(sub_category);
@@ -656,32 +665,6 @@ exports.getCallingStats = async (req, res) => {
     }
     const whereCat = conditions.length > 0 ? " WHERE " + conditions.join(" AND ") : "";
 
-    const grandWhere = [];
-    let grandTotalParams = [];
-    if (campaign && campaign !== "all") {
-      grandWhere.push("campaign = ?");
-      grandTotalParams.push(campaign);
-    }
-    if (category && category !== "all") {
-      grandWhere.push("category = ?");
-      grandTotalParams.push(category);
-    }
-    if (isCaller) {
-      grandWhere.push("assigned_to = ?");
-      grandTotalParams.push(req.user.id);
-    } else if (assigned_to !== undefined && assigned_to !== "" && assigned_to !== "all") {
-      if (assigned_to === "unassigned") {
-        grandWhere.push("(assigned_to IS NULL OR assigned_to = 0)");
-      } else if (assigned_to === "assigned") {
-        grandWhere.push("(assigned_to IS NOT NULL AND assigned_to > 0)");
-      } else {
-        grandWhere.push("assigned_to = ?");
-        grandTotalParams.push(parseInt(assigned_to, 10));
-      }
-    }
-    const grandWhereClause = grandWhere.length > 0 ? " WHERE " + grandWhere.join(" AND ") : "";
-    const grandTotalSql = `(SELECT COUNT(*) FROM calling_leads${grandWhereClause}) as grand_total`;
-
     const [generalStats, catSubStats, birthdayStats, callerBreakdown] = await Promise.all([
       queryPromise(`
         SELECT 
@@ -707,15 +690,17 @@ exports.getCallingStats = async (req, res) => {
         FROM calling_leads ${whereCat}
       `, params),
 
-      // Compute category-wide male, female and category_total counts so they NEVER drop or change when filtering by sub_category
+      // Compute category-wide male, female, total, assigned and unassigned counts so they NEVER drop or change when filtering by assigned_to or sub_category
       queryPromise(`
         SELECT 
           ${grandTotalSql},
           COUNT(*) as category_total,
+          SUM(CASE WHEN assigned_to IS NOT NULL AND assigned_to > 0 THEN 1 ELSE 0 END) as total_assigned,
+          SUM(CASE WHEN assigned_to IS NULL OR assigned_to = 0 THEN 1 ELSE 0 END) as total_unassigned,
           SUM(CASE WHEN sub_category = 'Male' OR sub_category = 'पुरुष' THEN 1 ELSE 0 END) as male_count,
           SUM(CASE WHEN sub_category = 'Female' OR sub_category = 'महिला' THEN 1 ELSE 0 END) as female_count
-        FROM calling_leads ${catWhere}
-      `, [...grandTotalParams, ...catParams]),
+        FROM calling_leads ${baseCatWhere}
+      `, [...grandTotalParams, ...baseCatParams]),
 
       queryPromise(`
         SELECT 
@@ -783,6 +768,8 @@ exports.getCallingStats = async (req, res) => {
     }
     normalizedMetrics.grand_total = Number(catSubStats[0]?.grand_total || 0);
     normalizedMetrics.category_total = catSubStats[0]?.category_total !== undefined ? Number(catSubStats[0].category_total) : (normalizedMetrics.total || 0);
+    normalizedMetrics.assigned = catSubStats[0]?.total_assigned !== undefined ? Number(catSubStats[0].total_assigned) : Number(rawMetrics.assigned || 0);
+    normalizedMetrics.unassigned = catSubStats[0]?.total_unassigned !== undefined ? Number(catSubStats[0].total_unassigned) : Number(rawMetrics.unassigned || 0);
     normalizedMetrics.male_count = Number(catSubStats[0]?.male_count || 0);
     normalizedMetrics.female_count = Number(catSubStats[0]?.female_count || 0);
 
