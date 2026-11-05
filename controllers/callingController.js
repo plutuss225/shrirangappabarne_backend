@@ -789,10 +789,152 @@ exports.getCallingStats = async (req, res) => {
       return norm;
     });
 
+    // 5. Hourly dialed calls breakdown (for Today or selected date filter)
+    let hourlyBreakdown = [];
+    let totalDialedToday = 0;
+    let peakHour = null;
+    let maxDialedInHour = -1;
+    const currentHour = new Date().getHours();
+
+    try {
+      const hourlyConditions = [
+        "called_at IS NOT NULL",
+        "(call_status != 'pending' AND call_status IS NOT NULL AND call_status != '')"
+      ];
+      const hourlyParams = [];
+
+      if (date_filter === "yesterday" || date_filter === "yestordays" || date_filter === "yesterdays") {
+        hourlyConditions.push("DATE(called_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)");
+      } else if (date_filter === "custom" && start_date && end_date) {
+        hourlyConditions.push("DATE(called_at) BETWEEN ? AND ?");
+        hourlyParams.push(start_date, end_date);
+      } else if (date_filter === "custom" && start_date) {
+        hourlyConditions.push("DATE(called_at) = ?");
+        hourlyParams.push(start_date);
+      } else {
+        // Default: Today's hourly calls (date_filter === "today" or "all")
+        hourlyConditions.push("DATE(called_at) = CURDATE()");
+      }
+
+      if (campaign && campaign !== "all") {
+        hourlyConditions.push("campaign = ?");
+        hourlyParams.push(campaign);
+      }
+      if (category && category !== "all") {
+        hourlyConditions.push("category = ?");
+        hourlyParams.push(category);
+      }
+      if (sub_category && sub_category !== "all") {
+        hourlyConditions.push("sub_category = ?");
+        hourlyParams.push(sub_category);
+      }
+      if (isCaller) {
+        hourlyConditions.push("assigned_to = ?");
+        hourlyParams.push(req.user.id);
+      } else if (assigned_to !== undefined && assigned_to !== "" && assigned_to !== "all") {
+        if (assigned_to === "unassigned") {
+          hourlyConditions.push("(assigned_to IS NULL OR assigned_to = 0)");
+        } else if (assigned_to === "assigned") {
+          hourlyConditions.push("(assigned_to IS NOT NULL AND assigned_to > 0)");
+        } else {
+          hourlyConditions.push("assigned_to = ?");
+          hourlyParams.push(parseInt(assigned_to, 10));
+        }
+      }
+
+      const hourlyWhere = " WHERE " + hourlyConditions.join(" AND ");
+      const hourlyRows = await queryPromise(`
+        SELECT 
+          HOUR(called_at) as hour,
+          COUNT(*) as total_dialed,
+          SUM(CASE WHEN call_status = 'completed' OR call_status = 'called' OR call_status = 'resolved' OR call_status = 'birthday_wished' THEN 1 ELSE 0 END) as completed,
+          SUM(CASE WHEN call_status = 'callback' THEN 1 ELSE 0 END) as callback,
+          SUM(CASE WHEN call_status = 'not_reachable' OR call_status = 'busy' OR call_status = 'switch_off' OR call_status = 'not_answered' OR call_status = 'wrong_number' OR call_status = 'invalid_number' THEN 1 ELSE 0 END) as unreachable
+        FROM calling_leads
+        ${hourlyWhere}
+        GROUP BY HOUR(called_at)
+        ORDER BY hour ASC
+      `, hourlyParams);
+
+      const hourlyMap = new Map();
+      let minHour = 8;
+      let maxHour = 20;
+
+      (hourlyRows || []).forEach(row => {
+        const h = Number(row.hour);
+        if (!isNaN(h)) {
+          if (h < minHour) minHour = Math.max(0, h);
+          if (h > maxHour) maxHour = Math.min(23, h);
+          hourlyMap.set(h, {
+            dialed: Number(row.total_dialed) || 0,
+            completed: Number(row.completed) || 0,
+            callback: Number(row.callback) || 0,
+            unreachable: Number(row.unreachable) || 0
+          });
+        }
+      });
+
+      if (currentHour > maxHour && currentHour <= 23) {
+        maxHour = currentHour;
+      }
+
+      function formatHourLabel(h) {
+        const period = h >= 12 ? 'PM' : 'AM';
+        const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+        return `${hour12} ${period}`;
+      }
+
+      function formatHourRange(h) {
+        const periodStart = h >= 12 ? 'PM' : 'AM';
+        const hourStart = h === 0 ? 12 : h > 12 ? h - 12 : h;
+        const nextH = (h + 1) % 24;
+        const periodEnd = nextH >= 12 ? 'PM' : 'AM';
+        const hourEnd = nextH === 0 ? 12 : nextH > 12 ? nextH - 12 : nextH;
+        return `${hourStart}:00 ${periodStart} - ${hourEnd}:00 ${periodEnd}`;
+      }
+
+      for (let h = minHour; h <= maxHour; h++) {
+        const item = hourlyMap.get(h) || { dialed: 0, completed: 0, callback: 0, unreachable: 0 };
+        totalDialedToday += item.dialed;
+        if (item.dialed > maxDialedInHour && item.dialed > 0) {
+          maxDialedInHour = item.dialed;
+          peakHour = {
+            hour: h,
+            label: formatHourLabel(h),
+            range: formatHourRange(h),
+            count: item.dialed
+          };
+        }
+        hourlyBreakdown.push({
+          hour: h,
+          label: formatHourLabel(h),
+          range: formatHourRange(h),
+          dialed: item.dialed,
+          completed: item.completed,
+          callback: item.callback,
+          unreachable: item.unreachable
+        });
+      }
+    } catch (hourlyErr) {
+      console.error("Error computing hourly stats:", hourlyErr);
+    }
+
     res.json({
       metrics: normalizedMetrics,
       birthdays: normalizedBirthdays,
-      callers: normalizedCallers
+      callers: normalizedCallers,
+      hourly: {
+        data: hourlyBreakdown,
+        summary: {
+          total_dialed: totalDialedToday,
+          peak_hour: peakHour,
+          current_hour: currentHour,
+          active_hours_count: hourlyBreakdown.filter(d => d.dialed > 0).length,
+          average_per_active_hour: hourlyBreakdown.filter(d => d.dialed > 0).length > 0
+            ? Math.round(totalDialedToday / hourlyBreakdown.filter(d => d.dialed > 0).length)
+            : 0
+        }
+      }
     });
   } catch (err) {
     console.error("Error getting stats:", err);
@@ -1149,6 +1291,7 @@ exports.uploadLeads = async (req, res) => {
       const name = (
         r.name ||
         r["Visitor Name"] ||
+        r["पत्रकाराचे नाव"] ||
         r["चिंचवड विधानसभा "] ||
         r["चिंचवड विधानसभा"] ||
         r["पिंपरी विधानसभा "] ||
@@ -1162,16 +1305,32 @@ exports.uploadLeads = async (req, res) => {
         r.phone ||
         r["Phone no"] ||
         r.phone_number ||
+        r["मोबाईल नं"] ||
+        r["मोबाईल"] ||
+        r["नंबर"] ||
+        r["फोन"] ||
         r["संपर्क क्र."] ||
         r["संपर्क क्र"] ||
         r["संपर्क"] ||
         r["Mobile"] ||
+        r["Phone"] ||
         ""
       ).trim();
 
       const normPhone = normalizePhone(rawPhone);
 
-      const purpose = (r.purpose || r["Purpose"] || r["पद "] || r["पद"] || r["Designation"] || null);
+      const purpose = (
+        r.purpose ||
+        r["Purpose"] ||
+        r["पेपर नाव"] ||
+        r["पेपर"] ||
+        r["वृत्तपत्र"] ||
+        r["माध्यम"] ||
+        r["पद "] ||
+        r["पद"] ||
+        r["Designation"] ||
+        null
+      );
       const address = (r.address || r["Visitor Address"] || r["कार्यक्षेत्र"] || r["Address"] || null);
 
       // Still upload even if there is NO phone number (only skip if entire row has no name, purpose or address)
@@ -1207,7 +1366,14 @@ exports.uploadLeads = async (req, res) => {
       const rawDob = r.dob || r["DOB"] || r["Date of Birth"] || null;
       const { dob, dob_day, dob_month } = parseDob(rawDob);
       const visitDate = r.visit_date || r["Visit Date"] || null;
-      const referenceBy = r.reference_by || r["Reference By"] || null;
+      const referenceBy = (
+        r.reference_by ||
+        r["Reference By"] ||
+        r["मेल"] ||
+        r["ईमेल"] ||
+        r["Email"] ||
+        null
+      );
       // Blank phone no when not provided
       const finalPhone = (normPhone && normPhone.length === 10)
         ? normPhone
